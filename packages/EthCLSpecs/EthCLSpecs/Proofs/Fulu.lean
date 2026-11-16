@@ -12,6 +12,8 @@ import EthCLSpecs.Proofs.Fulu.EpochSuccess.Registry
 import EthCLSpecs.Proofs.Fulu.EpochSuccess.Rewards
 import EthCLSpecs.Proofs.Fulu.EpochSuccess.Selection
 import EthCLSpecs.Proofs.Fulu.EpochSuccess.Stage
+import EthCLSpecs.Proofs.Fulu.FinalizedValidators
+import EthCLSpecs.Proofs.Fulu.IndexAssignment
 import EthCLSpecs.Proofs.Fulu.Invariants.Block
 import EthCLSpecs.Proofs.Fulu.Invariants.Epoch
 import EthCLSpecs.Proofs.Fulu.Invariants.Helpers
@@ -67,4 +69,22 @@ Re-exports:
 * `EthCLSpecs.Proofs.Fulu.ReachableInvariants`: `ReachableState.simpleStateInvariants`, the
   induction; the window bound, slot monotonicity, closure under `stateTransition`, and
   `simpleStateInvariants_not_sufficient`.
+* `EthCLSpecs.Proofs.Fulu.IndexAssignment`: `indexAssignment_of_compatibleFinality`, two
+  chains from one reachable state with compatible finality hold the same public key at every
+  validator index both have; with `Anchors.only`, `CompatibleFinality`, the working forms
+  `ReachableFrom` and `FinalizedBefore`, and the corollary for a descendant. The list argument
+  is `EthCLSpecs.Proofs.DepositQueue`, shared with Gloas and Heze.
+* `EthCLSpecs.Proofs.Fulu.FinalizedValidators`: `finalizedValidators_pubkey_eq`, a validator
+  whose `activation_eligibility_epoch` is finalized in one chain, and each validator before
+  it, has the same index and key on every chain from a state at or after the finalized
+  checkpoint; with `registryView` and `ReachableState.follows`. The argument is
+  `EthCLSpecs.Proofs.FinalizedRegistry`, shared with Gloas and Heze, which prove the property
+  across the fork upgrades.
+* `EthCLSpecs.Proofs.Fulu.IndexAssignment.Frame`, `.Helpers`, `.Epoch`, `.Block`: the deposit
+  frame, a step invariant over the registry's keys, its eligibility epochs and the
+  pending-deposit queue, and one `KeepsFrame` fact per spec step, proved with the shared frame
+  tactics.
+* `EthCLSpecs.Proofs.Fulu.IndexAssignment.Deposits`, `.Slots`: the contract of
+  `processPendingDeposits` as one scan of the queue, the fact that the finalized epoch does
+  not fall, and `processSlots_progress`, which carries a predicate through a run of slots.
 -/

@@ -1073,16 +1073,16 @@ the checkpoint epochs are in order, up to the previous epoch; and the `fork` fie
 has an epoch no later than the current one and this fork's version. They are
 necessary for reachability and far from sufficient.
 
-`ReachableState.simpleStateInvariants` proves them for every reachable Fulu and Gloas
+`ReachableState.simpleStateInvariants` proves them for every reachable Fulu, Gloas and Heze
 state, in `Proofs/<Fork>/ReachableInvariants.lean`, given anchors that satisfy them.
-Heze has the definitions and no step proofs. The proof rests on one step property.
+The proof rests on one step property.
 `KeepsCore act` says a run keeps six values fixed (the slot, the header slot, the
 `fork` field and the three checkpoint epochs) and keeps the registry sizes equal.
 Nearly every substep has it, and `Proofs/<Fork>/Invariants/` proves it one substep at a
 time. Three steps change the six values. The header step writes the state's own slot.
 Justification moves the checkpoint bound from the previous epoch to the current one.
-The slot increment that ends the epoch moves it back. The upgrade case copies every value
-the invariants read and writes a `fork` field for Gloas.
+The slot increment that ends the epoch moves it back. An upgrade case copies every value
+the invariants read and writes a `fork` field for the new fork.
 
 The step facts are Hoare triples over the pure runner, `RunEnsures v act Q`
 (`EthCLLib/Proofs/RunEnsures.lean`), with an invariant form, `Preserves`
@@ -1148,6 +1148,148 @@ proof keeps `EpochSafe` yet. `FUTURE_WORK.md` records the routes to each.
 The proofs leave the model's arithmetic as it is. At a site where the model wraps and the
 pyspec raises, a success theorem holds for the model alone. `DISCREPANCIES.md` lists those
 sites.
+
+### 11.6 The validator index assignment and the fork upgrades
+
+A validator index is a position in `state.validators`. A client keeps one map from index to
+public key for every chain it follows. That map is sound under one property: two chains with
+compatible finality hold the same public key at every index both have assigned. The property
+holds inside each fork and fails across each upgrade. Both halves are theorems about one
+statement.
+
+**The statement.** It takes a common state `t` and two end states `w'` and `w''`.
+
+* **`t` is reachable.** `ReachableState anchors validated nextForkEpoch t`, with anchors that
+  satisfy `SimpleStateInvariants`.
+* **`w'` and `w''` are reachable from `t`.** This is `ReachableState` with the one anchor `t`.
+  The anchor set is `Anchors.only t` when `t` is a state of the end states' fork. It is
+  `Anchors.onlyFulu t` when `t` is a Fulu state and the end states belong to a later fork.
+* **Compatible finality.** `CompatibleFinality t.slot w' w''` says one of the two end states
+  has finalized no slot at or after the slot of `t`. Checkpoint ancestry gives it when `t` is
+  the last state the chains share. The block of the earlier finalized checkpoint lies on both
+  chains, so the first slot of its epoch is below the slot where the chains part.
+* **The conclusion.** Validator `i` has one public key in `w'` and in `w''`, for every `i`
+  both hold.
+
+**Inside one fork.** `indexAssignment_of_compatibleFinality` proves the statement for Fulu,
+Gloas and Heze, in `Proofs/<Fork>/IndexAssignment.lean`, with `t` a state of that fork. For
+Gloas and Heze the common state `t` may sit after the fork's upgrade, which is then in the
+history the chains share. The proofs rest on Lean's three standard axioms.
+
+* **The list argument.** `Proofs/DepositQueue.lean` reads no spec code. A scan consumes a
+  prefix of the queue, and each consumed deposit adds at most one key at the end of the key
+  list. A chain that finalized no block after `t` consumes deposits of the queue of `t` alone.
+  Any other chain consumes that queue first. So the two key lists are prefixes of one list.
+* **The deposit frame.** `Proofs/<Fork>/IndexAssignment/` proves what each spec step does to
+  the keys and the queue. `StepInv` is a second step invariant, over the slot, the finalized
+  epoch, the registry's keys and the queue, and the frame tactics of §11.4 prove it one substep
+  at a time. `processPendingDeposits` is the one step outside the frame, and its contract is
+  one scan of the queue. A block appends deposits that carry its own slot, or the key of an
+  existing validator.
+* **Finality does not fall.** The finalized epoch of a chain never decreases, which the
+  checkpoint order in `SimpleStateInvariants` gives. A deposit a block appended after `t` has
+  a slot above every finalized slot the chain reaches, so the scan stops in front of it.
+* **The working forms.** The induction runs on `ReachableFrom validated nextForkEpoch t d w`,
+  a path relation with the `slots` and `block` steps, where each block sits at slot `d` or
+  later. `FinalizedBefore` puts the finalized slot of `w` below `d`, and
+  `validators_pubkey_eq_of_finalizedBefore` is the theorem in those forms. Each block of a
+  chain from `t` sits at the slot of `t` or later, which takes `CompatibleFinality` to
+  `FinalizedBefore`.
+
+**Across an upgrade.** `IndexAssignmentFromFulu`, in the Gloas and Heze theorem modules, is
+the same statement with `t` a Fulu state, at `validated = true`. Each chain then passes the
+upgrade on its own. The statement is false. Three pins modules prove
+`¬ IndexAssignmentFromFulu` (`indexAssignmentFromFulu_false`), each from a pair of end
+states at one slot, with one finalized checkpoint and two public keys at one index. Equal
+finalized checkpoints are compatible under every reading of the term, so the pair refutes the
+property for each such reading.
+
+* `Tests/GloasPyspecReplayPins.lean` uses chains the upstream pyspec built. The genesis state
+  and all 55 signed blocks come from the pyspec, and `Tests/ChainReplay.lean` replays them
+  with each signature and state root checked. The common state is the chain at slot 40. The
+  two chains differ in finality timing alone, and they disagree at index 64.
+* `Tests/GloasValidatorIndexPins.lean` and `Tests/HezeValidatorIndexPins.lean` start at a
+  hand-built Fulu state, one epoch before the fork, and need one block. They disagree at
+  index 16.
+
+Each common state is reachable from an anchor that satisfies `SimpleStateInvariants`, so each
+pair meets every hypothesis of the in-fork theorem. The place of the upgrade is the one
+difference.
+
+* **The Gloas upgrade.** `onboardBuildersFromPendingDeposits` takes each queued deposit with
+  `0xB0` credentials and an unknown key out of the queue, and makes a builder from it. Fulu's
+  `processPendingDeposits` makes a validator from the same deposit when the scan reaches it
+  before the fork.
+* **The Heze upgrade.** Heze's `applyPendingDeposit` drops a queued deposit with `0x00`
+  credentials and an unknown key (EIP-8365). The Fulu and Gloas rules make a validator from
+  it.
+
+Both cases have one cause. A fork changes what a queued deposit becomes, at a fixed epoch.
+The queue position a chain has reached by that epoch belongs to that chain: it depends on
+when the chain finalized the deposit's slot, and on the churn the earlier deposits consumed.
+In the two hand-built scenarios one block decides it. A voluntary exit postpones the top-up at
+the front of the queue, and the churn then covers the deposits behind it. In the replayed
+scenario finality decides it: one chain finalizes the deposits' slot at the last Fulu epoch
+transition, and the other one epoch later.
+
+**The upstream pyspec agrees.** `scripts/repro_validator_index_split.py` builds the replayed
+scenario on the reference pyspec, from a genesis state, with BLS on, and writes the data file
+`GloasPyspecReplayPins` reads. Both chains end on the finalized checkpoint
+`(4, block at slot 32)`, and `validators[64]` holds two keys. The script passes at v1.7.0-beta.4 and at upstream commit
+`e3e2d01` (2026-11-12), which carries the later onboarding rule of consensus-specs #5736. So
+the split is a property of the spec. Upstream issue #5798 reports the one-chain half: Fulu
+makes a validator from a `0xB0` deposit that it reaches before the fork.
+
+The Lean witnesses run on `CryptoBackend.ffi`, and each concrete fact closes by
+`native_decide`. They sit with the pins for that reason (§3.6). The definition
+`IndexAssignmentFromFulu` and the lemma `not_indexAssignmentFromFulu`, which reduces the
+refutation to one pair of chains, are in `Proofs/` and use no evaluation.
+
+**The finalized validators.** The property holds across the upgrades for a smaller set of
+validators. A validator is finalized in a state when its `activation_eligibility_epoch` is at
+or below the state's finalized epoch, or when it comes before such a validator in the
+registry. A client that keeps the finalized validators alone in its map is sound on every
+chain that descends from the finalized checkpoint. Lighthouse imports keys into its public-key
+cache under this rule (sigp/lighthouse#10569).
+
+`finalizedValidators_pubkey_eq_anyFork`, in `Proofs/Heze/FinalizedValidators.lean`, is the
+statement for states of any of the three forks. `ForkState` is a state of one fork, and
+`Reachable` is that fork's `ReachableState` at the fork's window.
+
+* **`t` is reachable**, and `w'` and `w''` are reachable from `t`. Each of the three may be a
+  Fulu, a Gloas or a Heze state, so a chain from `t` may cross one upgrade or both.
+* **The finalized epoch of `w'` starts at or before the slot of `t`.** With `t` the state of
+  the finalized checkpoint of `w'`, "reachable from `t`" reads "descends from the finalized
+  checkpoint of `w'`". `w''` needs no hypothesis on its own finality.
+* **Validator `i` of `w'` has a finalized `activation_eligibility_epoch`.**
+* **The conclusion.** Every index `j` up to `i` is in the registry of `w'` and of `w''`, with
+  one public key.
+
+The argument is in `Proofs/FinalizedRegistry.lean` and reads no spec code. It rests on two
+facts about a chain from `t`.
+
+* **The registry only grows.** No step removes a validator or writes a `pubkey`.
+* **A validator added after `t` becomes eligible after `t`.** `get_validator_from_deposit`
+  sets `activation_eligibility_epoch` to `FAR_FUTURE_EPOCH`, and `process_registry_updates`
+  later writes `current_epoch + 1`. Both values start above the slot of `t`.
+
+So a validator of `w'` whose eligibility epoch starts at or before the slot of `t` is a
+validator of `t`, and every chain from `t` holds it at the same index. Neither fact depends on
+what a queued deposit becomes, which is why the upgrades do no harm here.
+
+The deposit frame carries the eligibility epochs through each spec step. `StepInv` relates
+them to the context's by `EligStep`: an entry stays, or it becomes `FAR_FUTURE_EPOCH`, or it
+becomes the epoch after the context's. `process_registry_updates` is the one frame step that
+writes an entry, and `processRegistryUpdates_keepsFrame` proves it writes that value. Each
+fork's `ReachableState.follows` runs the induction, and its `upgrade` case uses that
+`upgradeToGloas`, `completeUpgradeToGloas` and `upgradeToHeze` write no validator. The proofs
+rest on Lean's three standard axioms, at a preset with two or more slots per epoch.
+
+`FinalizedIndexAssignmentFromFulu` is `IndexAssignmentFromFulu` with two more hypotheses: the
+validator's `activation_eligibility_epoch` is finalized in both end states.
+`finalizedIndexAssignmentFromFulu` proves it, for Gloas and for Heze. On the replayed pyspec
+chains, `finalizedValidators_on_replay` shows where the line falls: the two end states agree
+at every index up to 63, and validator 64, the index with two keys, is finalized in neither.
 
 ---
 

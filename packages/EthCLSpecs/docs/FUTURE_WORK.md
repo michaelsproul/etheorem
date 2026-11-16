@@ -162,3 +162,35 @@ the model raise there, and the success proofs then need the room that keeps the 
 For the reward numerator, the balance fold and the proposer lookahead's start slot, that is a
 new `EpochSafe` field each. For the sync-committee pubkeys, it is a field that every pubkey in
 the registry passes `KeyValidate`, which the deposit signature check gives on the block side.
+
+## The validator index assignment: what is left
+
+`indexAssignment_of_compatibleFinality` holds inside Fulu, Gloas and Heze, and
+`IndexAssignmentFromFulu` is false at the Gloas and Heze upgrades. For the finalized
+validators, `finalizedValidators_pubkey_eq_anyFork` holds across both upgrades
+(`SPECS_ARCHITECTURE.md` §11.6). Three things are open.
+
+### A statement over block roots
+
+The in-fork theorems name the common state `t`, and `CompatibleFinality` compares the
+finalized slot of an end state with the slot of `t`. A client compares checkpoint roots. A root-level statement needs the chain
+of a state as data, and a premise that the hash separates the block headers the two chains
+hold. That premise is a hypothesis about the hasher, like `ZeroChunksOften`. It cannot be an
+axiom: a 32-byte root cannot separate all headers.
+
+### A conditional form across an upgrade
+
+Take the queue at the upgrade on each chain. If no queued deposit is one the upgrade treats
+in a new way, the upgrade should keep the argument: for Gloas, no deposit with builder
+credentials and an unknown key; for Heze, no deposit with BLS credentials and an unknown key.
+The premise reads one chain's queue at one slot, so a client can check it. No theorem states
+it yet.
+
+### An active validator is a finalized one
+
+A client that keeps the finalized validators alone must still find the key of each validator
+that may sign. The spec gives that: `process_registry_updates` sets an `activation_epoch` only
+for a validator whose `activation_eligibility_epoch` is at or below the finalized epoch. The
+invariant "an `activation_epoch` below `FAR_FUTURE_EPOCH` implies a finalized eligibility
+epoch" is not proved. It needs the deposit frame to carry `activation_epoch` as it carries
+the eligibility epochs, and a premise that the anchors satisfy it.

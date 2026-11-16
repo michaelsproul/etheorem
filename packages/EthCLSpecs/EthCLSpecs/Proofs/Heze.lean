@@ -1,8 +1,16 @@
+import EthCLSpecs.Proofs.Heze.FinalizedValidators
 import EthCLSpecs.Proofs.Heze.GetInclusionListTransactions
+import EthCLSpecs.Proofs.Heze.IndexAssignment
+import EthCLSpecs.Proofs.Heze.Invariants.Block
+import EthCLSpecs.Proofs.Heze.Invariants.Epoch
+import EthCLSpecs.Proofs.Heze.Invariants.Helpers
+import EthCLSpecs.Proofs.Heze.Invariants.Justification
+import EthCLSpecs.Proofs.Heze.Invariants.Slots
 import EthCLSpecs.Proofs.Heze.IsPayloadInclusionListSatisfied
 import EthCLSpecs.Proofs.Heze.RecordPayloadInclusionListSatisfaction
 import EthCLSpecs.Proofs.Heze.OnExecutionPayloadEnvelope
 import EthCLSpecs.Proofs.Heze.Reachable
+import EthCLSpecs.Proofs.Heze.ReachableInvariants
 import EthCLSpecs.Proofs.Heze.Run
 import EthCLSpecs.Proofs.Heze.ShouldExtendPayload
 import EthCLSpecs.Proofs.Heze.StateInvariants
@@ -54,6 +62,19 @@ Re-exports:
 * `EthCLSpecs.Proofs.Heze.Run`: `HezeRun`, the state-transition monad the Heze
   beacon-state proofs pin their theorems to.
 * `EthCLSpecs.Proofs.Heze.StateInvariants`: `SimpleStateInvariants`, the four Fulu facts
-  restated over the Heze `BeaconState`, with `coreFields`, `RegistrySizes` and `KeepsCore`;
-  definitions only.
+  restated over the Heze `BeaconState`, with `coreFields`, `RegistrySizes` and `KeepsCore`.
+* `EthCLSpecs.Proofs.Heze.Invariants.Helpers`, `.Epoch`, `.Justification`, `.Block`, `.Slots`:
+  the Heze counterparts of the Gloas step facts. Heze inherits each step, and each
+  inheritance is a separate constant.
+* `EthCLSpecs.Proofs.Heze.ReachableInvariants`: `ReachableState.simpleStateInvariants`, the
+  induction, whose `upgrade` case carries the Gloas invariants through `upgradeToHeze`.
+* `EthCLSpecs.Proofs.Heze.IndexAssignment`: the Heze `indexAssignment_of_compatibleFinality`,
+  for two chains from one reachable Heze state; `IndexAssignmentFromFulu` is the same
+  statement with a Fulu common state, and `Tests/HezeValidatorIndexPins.lean` proves it
+  false. The modules under `IndexAssignment/` are the Heze counterparts of the Gloas ones.
+* `EthCLSpecs.Proofs.Heze.FinalizedValidators`: `finalizedValidators_pubkey_eq_anyFork`, the
+  finalized-validator theorem for states of any of the three forks, over `ForkState` and
+  `Reachable`; a chain may cross the Gloas upgrade, the Heze upgrade, or both.
+  `finalizedIndexAssignmentFromFulu` proves the Heze `IndexAssignmentFromFulu` restricted to
+  the validators that are finalized in both states.
 -/

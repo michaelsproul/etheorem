@@ -17,6 +17,8 @@ import EthCLSpecs.Proofs.Gloas.EpochSuccess.Selection
 import EthCLSpecs.Proofs.Gloas.EpochSuccess.Stage
 import EthCLSpecs.Proofs.Gloas.ForkChoiceRun
 import EthCLSpecs.Proofs.Gloas.GetPtc
+import EthCLSpecs.Proofs.Gloas.FinalizedValidators
+import EthCLSpecs.Proofs.Gloas.IndexAssignment
 import EthCLSpecs.Proofs.Gloas.InitializePtcWindow
 import EthCLSpecs.Proofs.Gloas.InitiateBuilderExit
 import EthCLSpecs.Proofs.Gloas.Invariants.Block
@@ -89,6 +91,18 @@ Re-exports:
   the Gloas counterparts of the Fulu step facts, for the inherited steps and for the EIP-7732
   ones (the parent payload, the bid, builder requests and withdrawals, the payment and PTC
   windows).
+* `EthCLSpecs.Proofs.Gloas.IndexAssignment`: the Gloas `indexAssignment_of_compatibleFinality`,
+  for two chains from one reachable Gloas state, so with the Gloas upgrade behind the common
+  state; `IndexAssignmentFromFulu` is the same statement with a Fulu common state, and
+  `Tests/GloasPyspecReplayPins.lean` and `Tests/GloasValidatorIndexPins.lean` prove it false.
+  The modules under `IndexAssignment/` are the Gloas counterparts of the Fulu ones: the
+  deposit frame, one `KeepsFrame` fact per spec step, the contract of
+  `processPendingDeposits`, and `processSlots_progress`.
+* `EthCLSpecs.Proofs.Gloas.FinalizedValidators`: the finalized validators across the Gloas
+  upgrade. `ReachableState.follows` carries `Follows` through the `upgrade` step,
+  `finalizedValidators_pubkey_eq_fromFulu` is the theorem for a Fulu common state, and
+  `finalizedIndexAssignmentFromFulu` proves `IndexAssignmentFromFulu` restricted to the
+  validators that are finalized in both states.
 * `EthCLSpecs.Proofs.Gloas.Reachable`: `ReachableState`, the Gloas states the state
   transition reaches, entering from a reachable Fulu state through the `upgrade` step at the
   Gloas fork boundary, with its `Anchors` and lemmas.

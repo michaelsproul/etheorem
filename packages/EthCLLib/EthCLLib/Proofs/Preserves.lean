@@ -276,6 +276,32 @@ theorem runEnsures_fuelLoop {step : β → StateT (SSZ.Box HasherTag.H T) (Excep
     | done a => exact runEnsures_pure hw
     | next b => exact ih b w hw
 
+/-- `fuelLoop` with an invariant that also reads the fuel left. A step that carries the loop on
+must re-establish the invariant at one unit less. The `exhausted` value must satisfy `Q` from
+an invariant state with no fuel, and a caller whose invariant rules that state out proves the
+loop never returns it. `ppdLoop` is the case: its fuel is the queue length plus one, and each
+`next` moves the cursor on. -/
+theorem runEnsures_fuelLoop_fuel {step : β → StateT (SSZ.Box HasherTag.H T) (Except ε) (Step β α)}
+    {exhausted : α} (I : Nat → β → T → Prop) (Q : α → T → Prop)
+    (hstep : ∀ n b w, I (n + 1) b w → RunEnsures w (step b) (fuelStepPost (I n) Q))
+    (hex : ∀ b w, I 0 b w → Q exhausted w) :
+    ∀ (fuel : Nat) (init : β) (v : T), I fuel init v →
+      RunEnsures v (fuelLoop fuel init exhausted step) Q := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro init v hI
+    unfold fuelLoop
+    exact runEnsures_pure (hex init v hI)
+  | succ fuel ih =>
+    intro init v hI
+    unfold fuelLoop
+    refine runEnsures_bind ((hstep fuel init v hI).weaken ?_)
+    intro r w hw
+    cases r with
+    | done a => exact runEnsures_pure hw
+    | next b => exact ih b w hw
+
 /-- `fuelLoop` keeps `P` when every step does. -/
 theorem Preserves.fuelLoop {P : T → Prop} {step : β → StateT (SSZ.Box HasherTag.H T) (Except ε) (Step β α)}
     (fuel : Nat) (init : β) (exhausted : α) (hstep : ∀ b, Preserves P (step b)) :
