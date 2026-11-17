@@ -105,13 +105,71 @@ is filed yet.
 
 ## Gloas
 
-_No open vector discrepancies._ Gloas is fully ported (the EIP-7732 ePBS spine, that is the
-state-transition pipeline, plus operations, fork choice, and the Fulu→Gloas
-transition); every in-scope minimal and mainnet vector passes by root or rejects
-faithfully, with no `xfail`. Gloas inherits the Fulu `registry_updates` substep (the
+_One recorded deviation from the pinned release, below._ Gloas is fully ported (the EIP-7732
+ePBS spine, that is the state-transition pipeline, plus operations, fork choice, and the
+Fulu→Gloas transition). Apart from the `fork` and `transition` vectors of the deviation, every
+in-scope minimal and mainnet vector passes by root or rejects faithfully, with no `xfail`.
+Gloas inherits the Fulu `registry_updates` substep (the
 DSL re-elaborates the captured `forkdef` in the Gloas namespace), so the overflow fix
 above propagated to Gloas with no Gloas-side change. Deliberate divergences are
 catalogued in `IMPLEMENTATION_NOTES.md`, "Gloas diff" and "Fork choice".
+
+### The Fulu to Gloas upgrade: a deviation from the pinned release
+
+The upgrade here is the upgrade of the consensus-specs branch
+`dapplion:gloas-onboard-cutoff`, at commit `e4bd955`. The branch proposes a change to the
+spec, and this tree carries it to prove what it gives. This case differs from the rows above:
+here the Lean bodies follow a proposed text, and the pinned vectors follow the released one.
+
+Between v1.7.0-beta.4 and the branch, the state transition of Fulu and Gloas changes in one
+file, `specs/gloas/fork.md`, in three places. The other files the branch changes hold fork
+choice, networking and validator guidance, and the Heze config.
+
+* **The onboarding rule of consensus-specs #5736**, which upstream merged after v1.7.0-beta.4
+  (`onboardBuildersFromPendingDeposits`, `Gloas/Operations.lean`). A deposit without builder
+  credentials stays queued, even when a builder holds its key. A builder-credential deposit
+  with a valid signature makes a builder, even when a validator holds its key or a queued
+  deposit names it.
+* **The onboarding cutoff**, the change the branch proposes, in the same function. A deposit
+  with a slot at or below the first slot of epoch `GLOAS_FORK_EPOCH - 2` stays queued. A chain
+  may have applied such a deposit before the fork, as a validator deposit.
+* **The payload-availability bit of the fork slot**, consensus-specs #5808, also merged after
+  v1.7.0-beta.4 (`upgradeToGloas`, `Gloas/Upgrade.lean`). `upgrade_to_gloas` unsets the bit,
+  which `process_slot` would have done at the previous slot under the Gloas rules.
+
+With the cutoff, two chains with compatible finality hold one public key at every validator
+index both have, across the upgrade: `indexAssignmentFromFulu`
+(`Proofs/Gloas/IndexAssignmentFromFulu.lean`). Without it they can hold two
+(`SPECS_ARCHITECTURE.md` §11.6).
+
+**The pinned vectors.** Every post-state of an upgrade has another root than the pinned
+release gives, by the unset bit. So each pinned Gloas `fork` vector departs (37 at `minimal`,
+35 at `mainnet`), and each pinned Gloas `transition` vector with a post-state (33 and 27).
+`transition_rejects_pre_gloas_payload_attestation` compares no post-state and passes. Nine of
+the `fork` vectors per preset depart by the onboarding rule too: they hold a builder deposit
+at `GENESIS_SLOT`, at or below the cutoff, and the branch moves the deposits of those tests to
+`GENESIS_SLOT + 1`. The harness states the rule in `departs_from_pinned_release`
+(`PySpecTests/test_pyspec.py`) and reports these vectors as `xfail`. The other pinned vectors
+of Gloas, Fulu and Heze pass.
+
+| Vectors (`minimal` and `mainnet`) | Spec citation | Resolution |
+|---|---|---|
+| `gloas/fork/fork/pyspec_tests/*` | `gloas/fork.md:70`, `onboard_builders_from_pending_deposits`, and `gloas/fork.md:135`, `upgrade_to_gloas` | Deviation kept: Lean follows the branch |
+| `gloas/transition/core/pyspec_tests/*`, but `transition_rejects_pre_gloas_payload_attestation` | `gloas/fork.md:135`, `upgrade_to_gloas` | Deviation kept: Lean follows the branch |
+
+**The checks that replace them.** Three checks hold the Lean upgrade to the branch itself.
+
+* The branch generates its own vectors (`make test reftests=true`). At `minimal`, the Lean
+  model passes the 233 `fork`, `transition` and neighbouring cases it models, run through the
+  harness with `--tag` on the generated tree. They include the branch's test of the two sides
+  of the cutoff.
+* One generated case is no `fork` vector: `fork_validator_indices_match_across_branches`
+  yields a `post` taken after `process_pending_deposits`. `Tests/GloasCrossBranchVectorPins.lean`
+  replays what the test does and ends on the root of `post`.
+* `scripts/repro_validator_index_split.py` builds two chains on the pyspec of the branch, and
+  `Tests/GloasPyspecReplayPins.lean` replays their 55 blocks with each signature and state
+  root checked. Eight of them are Gloas blocks after the upgrade, and the queue of that
+  scenario takes each branch of the onboarding function.
 
 The Gloas `process_pending_deposits` (`gloas/beacon-chain.md:1659`) is a Gloas override, and
 it carried the same stale eth1-bridge stop as the Fulu body above. The beta.4 re-pin removed

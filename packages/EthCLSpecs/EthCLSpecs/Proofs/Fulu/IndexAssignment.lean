@@ -62,12 +62,17 @@ from `t` sits at the slot of `t` or later (`ReachableFrom.raise`), which takes
 
 ## One fork
 
-Both chains stay inside the Fulu window of `ReachableState`. With a fork upgrade after `t`
-the statement is false. `IndexAssignmentFromFulu`, in `Proofs/Gloas/IndexAssignment.lean` and
+Both chains stay inside the Fulu window of `ReachableState`. A fork upgrade after `t` needs
+its own argument, because an upgrade can change what a queued deposit becomes.
+`IndexAssignmentFromFulu`, in `Proofs/Gloas/IndexAssignment.lean` and
 `Proofs/Heze/IndexAssignment.lean`, is this statement for chains that end in the later fork.
-`Tests/GloasPyspecReplayPins.lean`, `Tests/GloasValidatorIndexPins.lean` and
-`Tests/HezeValidatorIndexPins.lean` refute it, each with two chains that have one finalized
-checkpoint and two keys at one index. Each later fork has this theorem for its own chains.
+
+* Across the Gloas upgrade the statement holds, by the onboarding cutoff
+  (`Proofs/Gloas/IndexAssignmentFromFulu.lean`).
+* Across the Heze upgrade it is false. `Tests/HezeValidatorIndexPins.lean` refutes it, with
+  two chains that have one finalized checkpoint and two keys at one index.
+
+Each later fork has this theorem for its own chains.
 -/
 
 set_option autoImplicit false

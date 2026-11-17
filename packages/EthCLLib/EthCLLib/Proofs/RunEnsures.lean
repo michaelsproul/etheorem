@@ -457,6 +457,18 @@ theorem runEnsures_forIn_array_inv
   rw [← Array.forIn_toList]
   exact runEnsures_forIn_list_inv I hstep xs.toList init hinit
 
+/-- `Array.forIn` with an invariant on the part of the array still to walk, as a list: the
+array form of `runEnsures_forIn_list`. A loop whose accumulator gathers a part of the elements
+reads its progress this way, as the builder onboarding of the Gloas upgrade does. -/
+theorem runEnsures_forIn_array
+    {f : α → β → StateT (SSZ.Box HasherTag.H T) (Except ε) (ForInStep β)}
+    (I : List α → β → T → Prop) (Q : β → T → Prop)
+    (hstep : ∀ x rest b w, I (x :: rest) b w → RunEnsures w (f x b) (loopStepPost (I rest) Q))
+    (hnil : ∀ b w, I [] b w → Q b w) (xs : Array α) (init : β) {v : T}
+    (hinit : I xs.toList init v) : RunEnsures v (forIn xs init f) Q := by
+  rw [← Array.forIn_toList]
+  exact runEnsures_forIn_list I Q hstep hnil xs.toList init v hinit
+
 /-- `List.foldlM` with an invariant on the accumulator and state. -/
 theorem runEnsures_foldlM_list_inv {f : β → α → StateT (SSZ.Box HasherTag.H T) (Except ε) β}
     (I : β → T → Prop) (hstep : ∀ b x w, I b w → RunEnsures w (f b x) I) :

@@ -1,5 +1,6 @@
 import EthCLSpecs.Proofs.Fulu.FinalizedValidators
 import EthCLSpecs.Proofs.Gloas.IndexAssignment
+import EthCLSpecs.Proofs.Gloas.IndexAssignment.Onboarding
 
 /-!
 # `EthCLSpecs.Proofs.Gloas.FinalizedValidators`: chains agree on the finalized validators, across the Gloas upgrade
@@ -25,18 +26,24 @@ the Gloas upgrade on its own.
 `finalizedValidators_pubkey_eq_fromFulu` is the theorem for a Fulu common state, and
 `finalizedValidators_pubkey_eq` the one for a Gloas common state.
 
-## The contrast with the index assignment
+## The relation to the index assignment
 
-`IndexAssignmentFromFulu` (`Proofs/Gloas/IndexAssignment.lean`) is false: two chains from one
-Fulu state, with compatible finality, can hold two keys at one index.
+`IndexAssignmentFromFulu` (`Proofs/Gloas/IndexAssignment.lean`) is the stronger statement: two
+chains from one Fulu state, with compatible finality, hold one key at every index both have.
+It rests on the onboarding cutoff of the upgrade, and `indexAssignmentFromFulu`
+(`Proofs/Gloas/IndexAssignmentFromFulu.lean`) proves it. At v1.7.0-beta.4, which has no
+cutoff, the statement is false (`SPECS_ARCHITECTURE.md` §11.6).
+
 `FinalizedIndexAssignmentFromFulu` is that statement with two more hypotheses, that the
 validator's `activation_eligibility_epoch` is finalized in both states.
-`finalizedIndexAssignmentFromFulu` proves it.
+`finalizedIndexAssignmentFromFulu` proves it with no fact about the queue. The proof reads
+the registry alone, so it holds under each onboarding rule, and it carries over to the Heze
+upgrade.
 
-In the pair of chains that refutes the first statement, the upgrade turns a queued deposit
-into a builder on one chain, after the other chain made a validator from it. Each validator
-at the disputed index was added after the common state. Its eligibility epoch then starts
-above the slot of the common state, and neither chain has finalized that slot.
+Without the cutoff, the upgrade turns a queued deposit into a builder on one chain, after the
+other chain made a validator from it. Each validator at the disputed index was added after
+the common state. Its eligibility epoch then starts above the slot of the common state, and
+neither chain has finalized that slot.
 -/
 
 set_option autoImplicit false
@@ -51,8 +58,8 @@ open EthCLSpecs.Gloas.Const (slotsPerEpoch slotsPerEpochPos farFutureEpoch gloas
 open EthCLSpecs.Proofs.DepositQueue
 open EthCLSpecs.Proofs.FinalizedRegistry
 open scoped EthCLSpecs.Gloas.Downgrade
-open IndexAssignment (registryKeys registryElig EligStep Ctx StepInv KeepsFrame finalizedSlot
-  processSlots_progress processBlock_keepsFrame addBuilderToRegistry_keepsFrame)
+open IndexAssignment (registryKeys registryElig EligStep Ctx StepInv finalizedSlot
+  processSlots_progress processBlock_keepsFrame completeUpgradeToGloas_ensures)
 
 section
 
@@ -125,54 +132,15 @@ theorem registryView_upgradeToGloas (fv : Version) (u : EthCLSpecs.Fulu.BeaconSt
   simp only [registryView, EthCLSpecs.Proofs.Fulu.registryView, hk, he]
   rfl
 
-/-- A builder deposit keeps the frame: it tops up a builder or appends one, and both write the
-builder registry alone. The proof is the one of `applyDepositForBuilder_keepsCore`
-(`Proofs/Gloas/ReachableInvariants.lean`), run against the deposit frame. -/
-theorem applyDepositForBuilder_keepsFrame (pk : BLSPubkey) (wc : Bytes32) (amt : Gwei)
-    (sig : BLSSignature) (slot : Slot) :
-    KeepsFrame (applyDepositForBuilder (StateTransition := GloasRun) pk wc amt sig slot) := by
-  intro c v hv
-  unfold applyDepositForBuilder
-  run_ensures
-  run_ensures_beta
-  split
-  all_goals run_ensures
-  all_goals try (call addBuilderToRegistry_keepsFrame _ _ _ _ _; run_ensures)
-  all_goals frame_close
-
-/-- The builder onboarding of the upgrade keeps the slot and the keys, and it moves the
-eligibility epochs by `EligStep`. The loop applies builder deposits, each of which keeps the
-frame. The last write replaces the queue, which the frame does not allow, so the contract
-states the three values apart. -/
-theorem onboardBuildersFromPendingDeposits_registry (v : BeaconState) (hr : RegistrySizes v) :
-    RunEnsures v (onboardBuildersFromPendingDeposits (StateTransition := GloasRun))
-      (fun _ w => w.slot = v.slot ∧ registryKeys w = registryKeys v ∧
-        EligStep v.slot (registryElig v) (registryElig w)) := by
-  unfold onboardBuildersFromPendingDeposits
-  run_ensures
-  refine (Preserves.forIn_array _ _ (fun _ _ => ?_)).run (StepInv.start v false hr)
-    (fun _ w hw => ?_)
-  · intro w hw
-    run_ensures
-    all_goals try frame_close
-    call applyDepositForBuilder_keepsFrame _ _ _ _ _
-    run_ensures
-    frame_close
-  · run_ensures
-    obtain ⟨hs, -, hk, -, -, he⟩ := hw
-    simp only [Ctx.of] at hs hk he
-    exact ⟨by simp only [box_reduce]; exact hs, by simp only [registryKeys, box_reduce]; exact hk,
-      by simp only [registryElig, box_reduce]; exact he⟩
-
 /-- The second half of the upgrade keeps the slot and the keys, and it moves the eligibility
-epochs by `EligStep`. The PTC window write touches neither. -/
+epochs by `EligStep`. The PTC window write touches neither, and the builder onboarding writes
+the builder registry and the queue alone. This is `completeUpgradeToGloas_ensures`
+(`Proofs/Gloas/IndexAssignment/Onboarding.lean`) without its queue fact. -/
 theorem completeUpgradeToGloas_registry (v : BeaconState) (hr : RegistrySizes v) :
     RunEnsures v (completeUpgradeToGloas (StateTransition := GloasRun))
       (fun _ w => w.slot = v.slot ∧ registryKeys w = registryKeys v ∧
-        EligStep v.slot (registryElig v) (registryElig w)) := by
-  unfold completeUpgradeToGloas
-  run_ensures
-  exact onboardBuildersFromPendingDeposits_registry _ hr
+        EligStep v.slot (registryElig v) (registryElig w)) :=
+  (completeUpgradeToGloas_ensures v hr).weaken fun _ _ ⟨hs, _, hk, he, _⟩ => ⟨hs, hk, he⟩
 
 /-! ## The induction -/
 
@@ -353,8 +321,9 @@ theorem finalizedValidators_pubkey_eq_fromFulu (hspe : 2 ≤ slotsPerEpoch)
 hypotheses of that statement, and two more. Validator `i` has an
 `activation_eligibility_epoch` at or below the finalized epoch, in `w'` and in `w''`.
 
-`IndexAssignmentFromFulu` is false (`Tests/GloasPyspecReplayPins.lean`), and this statement
-is a theorem (`finalizedIndexAssignmentFromFulu`). -/
+`IndexAssignmentFromFulu` implies this statement, and its proof needs the onboarding cutoff
+(`Proofs/Gloas/IndexAssignmentFromFulu.lean`). `finalizedIndexAssignmentFromFulu` proves this
+one with no fact about the queue. -/
 def FinalizedIndexAssignmentFromFulu : Prop :=
   ∀ (anchors : EthCLSpecs.Proofs.Fulu.Anchors) (t : EthCLSpecs.Fulu.BeaconState)
     (w' w'' : BeaconState),

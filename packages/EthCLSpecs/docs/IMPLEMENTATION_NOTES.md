@@ -697,7 +697,10 @@ v1.7.0-beta.4) and the PTC window zeroed. `completeUpgradeToGloas` then runs on 
 post-state: it fills `ptc_window` with `initialize_ptc_window(post)`, Gloas's own
 `compute_ptc` over the Gloas state (beta.4; alpha.12 computed it over the Fulu pre-state),
 and onboards builders from the pending-deposit queue
-(`onboard_builders_from_pending_deposits`). The split follows the spec, which builds the
+(`onboard_builders_from_pending_deposits`). The upgrade is the one of the consensus-specs
+branch `dapplion:gloas-onboard-cutoff`, a deviation from the pinned release that
+`DISCREPANCIES.md` records: the onboarding function of the branch, and the unset
+payload-availability bit of the fork slot in `upgradeToGloas`. The split follows the spec, which builds the
 state, then writes `ptc_window`, then onboards. `upgradeToGloas` takes `GLOAS_FORK_VERSION` as
 a parameter and sets `fork := {previous := pre.fork.current, current := GLOAS_FORK_VERSION,
 epoch := currentEpoch}`.

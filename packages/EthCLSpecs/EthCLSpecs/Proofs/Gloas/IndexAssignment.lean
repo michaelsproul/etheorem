@@ -19,12 +19,11 @@ state the chain reached through the Gloas upgrade. `ReachableState (Anchors.only
 Fulu anchor, so no `upgrade` step fires after `t`. Both chains run under the Gloas rules from
 `t` on, with the upgrade in the history they share.
 
-That placement is the content of the theorem. With the upgrade after the common state the
-statement is false. `IndexAssignmentFromFulu`, at the end of this module, is the same
-statement with a Fulu state as `t`, and `not_indexAssignmentFromFulu` reduces its refutation
-to one pair of chains. `Tests/GloasPyspecReplayPins.lean` and
-`Tests/GloasValidatorIndexPins.lean` each give a pair, with one finalized checkpoint and two
-keys at one index. The Heze upgrade ends the window at the other side
+`IndexAssignmentFromFulu`, at the end of this module, is the same statement with a Fulu state
+as `t`. Each chain then passes the upgrade on its own, and the statement needs a fact about
+the upgrade: the builder onboarding takes no deposit that a chain may have applied before
+the fork. `Proofs/Gloas/IndexAssignmentFromFulu.lean` proves the statement from the
+onboarding cutoff. The Heze upgrade ends the window at the other side
 (`Tests/HezeValidatorIndexPins.lean`).
 
 ## What Gloas changes in the proof
@@ -374,10 +373,13 @@ end EthCLSpecs.Proofs.Gloas
 Gloas upgrade lies in the history the two chains share. `IndexAssignmentFromFulu` is the same
 statement with a Fulu state as `t`: the hypotheses are a reachable `t`, two states reachable
 from the one anchor `t`, and `CompatibleFinality` at the slot of `t`. The one difference is
-that each chain now passes the upgrade on its own. That statement is false.
-`not_indexAssignmentFromFulu` reduces its refutation to one pair of chains, and
-`Tests/GloasPyspecReplayPins.lean` and `Tests/GloasValidatorIndexPins.lean` each give a
-pair. -/
+that each chain now passes the upgrade on its own.
+
+This module states the property. `indexAssignmentFromFulu`
+(`Proofs/Gloas/IndexAssignmentFromFulu.lean`) proves it, from the onboarding cutoff of
+`onboardBuildersFromPendingDeposits`. Without the cutoff the statement is false: the
+v1.7.0-beta.4 upgrade makes a builder from a queued deposit that another chain applied as a
+validator deposit before the fork (`SPECS_ARCHITECTURE.md` §11.6). -/
 
 namespace EthCLSpecs.Proofs.Gloas
 
@@ -399,7 +401,8 @@ def Anchors.onlyFulu (u : EthCLSpecs.Fulu.BeaconState) : Anchors :=
 /-- The index-assignment property with a Fulu common state: for a reachable Fulu state `t`,
 two Gloas states reachable from `t`, and compatible finality at the slot of `t`, validator `i`
 has one public key in both states. The hypotheses are those of
-`indexAssignment_of_compatibleFinality`, at `validated = true`, with the upgrade after `t`. -/
+`indexAssignment_of_compatibleFinality`, at `validated = true`, with the upgrade after `t`.
+`indexAssignmentFromFulu` (`Proofs/Gloas/IndexAssignmentFromFulu.lean`) proves it. -/
 def IndexAssignmentFromFulu : Prop :=
   ∀ (anchors : EthCLSpecs.Proofs.Fulu.Anchors) (t : EthCLSpecs.Fulu.BeaconState)
     (w' w'' : BeaconState),
@@ -410,20 +413,6 @@ def IndexAssignmentFromFulu : Prop :=
     CompatibleFinality t.slot w' w'' →
     ∀ (i : Nat) (h' : i < w'.validators.val.size) (h'' : i < w''.validators.val.size),
       w'.validators.val[i].pubkey = w''.validators.val[i].pubkey
-
-/-- One pair of chains refutes `IndexAssignmentFromFulu`: a reachable Fulu state, two Gloas
-states reachable from it with compatible finality, and one index with two keys. -/
-theorem not_indexAssignmentFromFulu {anchors : EthCLSpecs.Proofs.Fulu.Anchors}
-    {t : EthCLSpecs.Fulu.BeaconState} {w' w'' : BeaconState}
-    (hA : ∀ u, anchors.fulu u → EthCLSpecs.Proofs.Fulu.SimpleStateInvariants u)
-    (ht : EthCLSpecs.Proofs.Fulu.ReachableState anchors true gloasForkEpoch t)
-    (h' : ReachableState (Anchors.onlyFulu t) true farFutureEpoch w')
-    (h'' : ReachableState (Anchors.onlyFulu t) true farFutureEpoch w'')
-    (hc : CompatibleFinality t.slot w' w'')
-    {i : Nat} (hi' : i < w'.validators.val.size) (hi'' : i < w''.validators.val.size)
-    (hne : w'.validators.val[i].pubkey ≠ w''.validators.val[i].pubkey) :
-    ¬ IndexAssignmentFromFulu :=
-  fun h => hne (h anchors t w' w'' hA ht h' h'' hc i hi' hi'')
 
 end AcrossUpgrade
 

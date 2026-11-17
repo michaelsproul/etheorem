@@ -23,13 +23,39 @@ change. The `skip`s stay skipped, they are out of scope by design.
 
 import pytest
 
-from harness import build_request, ensure_archive, walk_cases
+from harness import PINNED_VERSION, build_request, ensure_archive, walk_cases
 
 # Upstream vectors that contradict the spec text. Each id is an open row in
 # docs/DISCREPANCIES.md. A pass means the vector now matches the spec, so the
 # row and this set have to come out together. Empty at v1.7.0-beta.4: the Heze
 # `fork_base_state` vectors, the two alpha.12 rows, match the spec there.
 SPEC_TEXT_DIVERGENCES: set[str] = set()
+
+# Vectors of the pinned release that the Lean bodies depart from on purpose. The Fulu to
+# Gloas upgrade is the one of the consensus-specs branch `dapplion:gloas-onboard-cutoff`,
+# which differs from the pinned release in two places (docs/DISCREPANCIES.md, "Gloas"):
+#
+# * `upgrade_to_gloas` unsets the payload-availability bit of the fork slot (upstream #5808),
+#   so the post-state of every upgrade has another root;
+# * `onboard_builders_from_pending_deposits` leaves a builder deposit at or below the
+#   onboarding cutoff in the queue.
+#
+# So every pinned Gloas `fork` case departs, and every pinned Gloas `transition` case that
+# has a post-state to compare. A pass means the pinned release and the Lean bodies agree
+# again, so the rule and the DISCREPANCIES.md rows have to come out together.
+PINNED_TRANSITION_CASES_WITHOUT_POST: set[str] = {
+    # The block is rejected, so the case compares no post-state.
+    "transition_rejects_pre_gloas_payload_attestation",
+}
+
+
+def departs_from_pinned_release(case) -> bool:
+    """`True` for a pinned-release vector whose post-state the Lean upgrade does not match."""
+    if case.fork != "gloas":
+        return False
+    if case.runner == "fork":
+        return True
+    return case.runner == "transition" and case.name not in PINNED_TRANSITION_CASES_WITHOUT_POST
 
 
 def test_value_error_scope(request):
@@ -58,9 +84,22 @@ def test_value_error_scope(request):
     )
 
 
-def test_case(case, server, tmp_path):
+def test_case(case, server, tmp_path, pytestconfig):
     request = build_request(case, tmp_path)
     result = server.submit(request)
+    # Before the bug check on purpose: a recorded deviation shows as a post-state root
+    # mismatch, which the server reports in the `bug` bucket. The rule reads the pinned
+    # vectors alone: vectors of another tag, such as ones generated from the branch, are held
+    # to the plain pass criterion.
+    if pytestconfig.getoption("--tag") == PINNED_VERSION and departs_from_pinned_release(case):
+        if result.passed:
+            pytest.fail(
+                f"{case.case_id} now matches the pinned release; update "
+                "`departs_from_pinned_release` and DISCREPANCIES.md"
+            )
+        pytest.xfail(
+            "the Lean upgrade departs from the pinned release on purpose; see DISCREPANCIES.md"
+        )
     if result.bucket == "bug":
         pytest.fail(f"{case.case_id}: bug-smell — {result.detail}")
     # After the bug check on purpose: a bug is always a hard failure, divergence or not.

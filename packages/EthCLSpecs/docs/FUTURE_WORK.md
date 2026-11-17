@@ -165,10 +165,10 @@ the registry passes `KeyValidate`, which the deposit signature check gives on th
 
 ## The validator index assignment: what is left
 
-`indexAssignment_of_compatibleFinality` holds inside Fulu, Gloas and Heze, and
-`IndexAssignmentFromFulu` is false at the Gloas and Heze upgrades. For the finalized
-validators, `finalizedValidators_pubkey_eq_anyFork` holds across both upgrades
-(`SPECS_ARCHITECTURE.md` §11.6). Three things are open.
+`indexAssignment_of_compatibleFinality` holds inside Fulu, Gloas and Heze.
+`IndexAssignmentFromFulu` holds at the Gloas upgrade, with the onboarding cutoff, and it is
+false at the Heze upgrade. For the finalized validators, `finalizedValidators_pubkey_eq_anyFork`
+holds across both upgrades (`SPECS_ARCHITECTURE.md` §11.6). Three things are open.
 
 ### A statement over block roots
 
@@ -178,13 +178,19 @@ of a state as data, and a premise that the hash separates the block headers the 
 hold. That premise is a hypothesis about the hasher, like `ZeroChunksOften`. It cannot be an
 axiom: a 32-byte root cannot separate all headers.
 
-### A conditional form across an upgrade
+### A conditional form across the Heze upgrade
 
 Take the queue at the upgrade on each chain. If no queued deposit is one the upgrade treats
-in a new way, the upgrade should keep the argument: for Gloas, no deposit with builder
-credentials and an unknown key; for Heze, no deposit with BLS credentials and an unknown key.
-The premise reads one chain's queue at one slot, so a client can check it. No theorem states
-it yet.
+in a new way, the upgrade should keep the argument: for Heze, no deposit with BLS credentials
+and an unknown key. The premise reads one chain's queue at one slot, so a client can check
+it. No theorem states it yet.
+
+The Gloas upgrade needs no such premise. Its onboarding cutoff makes the upgrade treat in a
+new way only the deposits that no chain applied before the fork, and `indexAssignmentFromFulu`
+is unconditional. A cutoff of the same kind is a candidate for EIP-8365: drop a deposit with
+BLS credentials only when its slot is above the first slot of epoch `HEZE_FORK_EPOCH - 2`.
+No spec text proposes it and no theorem covers it. The Gloas proof reads the queue through a
+filter (`Proofs/Gloas/IndexAssignmentFromFulu.lean`), and a Heze proof could start there.
 
 ### An active validator is a finalized one
 

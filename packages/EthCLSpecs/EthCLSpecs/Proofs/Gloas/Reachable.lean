@@ -25,7 +25,7 @@ inductive states the trigger:
 * its slot is exactly `forkSlot gloasForkEpoch`, the `Nat` form of the two `fork.md`
   conditions;
 * `upgradeToGloas` builds the Gloas state, and `completeUpgradeToGloas` finishes it. The
-  second part can reject (`Gloas/Operations.lean:217-220`), so its run must succeed.
+  second part can reject (`Gloas/Operations.lean:242-245`), so its run must succeed.
 
 The fork version and epoch are the config's `GLOAS_FORK_VERSION` and `GLOAS_FORK_EPOCH`, as
 `upgrade_to_gloas` and `get_ptc` read them. The runner takes the epoch from the vector's
