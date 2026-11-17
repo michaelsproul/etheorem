@@ -160,13 +160,15 @@ theorem exitChurnFloor_le [PresetValid] [ConfigValid] (s : BeaconState) :
       (UInt64.toNat (getTotalActiveBalance (pureState s) / Const.churnLimitQuotient)))
   constructor <;> omega
 
-theorem computeExitEpochAndUpdateChurn_succeeds [PresetValid] [ConfigValid] (s : BeaconState)
-    (bal : Gwei) (hbal : bal.toNat ≤ Const.ejectionBalanceG.toNat)
-    (hroom : exitStart s + ejectionStep < 2 ^ 64) :
+/-- `compute_exit_epoch_and_update_churn` cannot fail, for an exit of any balance. It writes the
+two churn fields and returns an exit epoch at most `exitStep bal` past `exitStart`. The room
+premise keeps the epoch arithmetic below `2 ^ 64`, so no sum on this path wraps. -/
+theorem computeExitEpochAndUpdateChurn_reserves [PresetValid] [ConfigValid] (s : BeaconState)
+    (bal : Gwei) (hroom : exitStart s + exitStep bal.toNat < 2 ^ 64) :
     RunSucceeds s (computeExitEpochAndUpdateChurn (StateTransition := FuluRun) bal)
       (fun ee s' => ∃ ebtc, s' = { s with exitBalanceToConsume := ebtc, earliestExitEpoch := ee } ∧
         (computeEpochAtSlot s.slot).toNat + 1 + Const.maxSeedLookahead.toNat ≤ ee.toNat ∧
-        ee.toNat ≤ exitStart s + ejectionStep) := by
+        ee.toNat ≤ exitStart s + exitStep bal.toNat) := by
   have hrun : (computeExitEpochAndUpdateChurn (StateTransition := FuluRun) bal).run (pureState s) =
       .ok ((reserveChurn bal
           (if s.earliestExitEpoch < umax s.earliestExitEpoch (computeActivationExitEpoch (computeEpochAtSlot s.slot))
@@ -196,13 +198,12 @@ theorem computeExitEpochAndUpdateChurn_succeeds [PresetValid] [ConfigValid] (s :
       exitStart s := by
     rw [umax_toNat, hcae]; rfl
   obtain ⟨hfloorP, hfloor1⟩ := exitChurnFloor_le s
-  -- One ejection's reservation moves the epoch by at most `ejectionStep`.
-  have hstep : (bal.toNat - 1) / (getActivationExitChurnLimit (pureState s)).toNat + 1 ≤ ejectionStep := by
-    unfold ejectionStep
+  -- The reservation moves the epoch by at most `exitStep bal`: the churn is at least the floor.
+  have hstep : (bal.toNat - 1) / (getActivationExitChurnLimit (pureState s)).toNat + 1 ≤
+      exitStep bal.toNat := by
+    unfold exitStep
     have h1 : (bal.toNat - 1) / (getActivationExitChurnLimit (pureState s)).toNat ≤
         (bal.toNat - 1) / exitChurnFloor := Nat.div_le_div_left hfloorP hfloor1
-    have h2 : (bal.toNat - 1) / exitChurnFloor ≤ (Const.ejectionBalanceG.toNat - 1) / exitChurnFloor :=
-      Nat.div_le_div_right (by omega)
     omega
   have hbound := reserveChurn_fst_bound bal
     (if s.earliestExitEpoch < umax s.earliestExitEpoch (computeActivationExitEpoch (computeEpochAtSlot s.slot))
@@ -212,6 +213,20 @@ theorem computeExitEpochAndUpdateChurn_succeeds [PresetValid] [ConfigValid] (s :
     (by rw [hearl]; omega)
   rw [hearl] at hbound
   constructor <;> omega
+
+/-- The ejection case of `computeExitEpochAndUpdateChurn_reserves`: a balance of
+`EJECTION_BALANCE` at most moves the exit epoch by `ejectionStep` at most. -/
+theorem computeExitEpochAndUpdateChurn_succeeds [PresetValid] [ConfigValid] (s : BeaconState)
+    (bal : Gwei) (hbal : bal.toNat ≤ Const.ejectionBalanceG.toNat)
+    (hroom : exitStart s + ejectionStep < 2 ^ 64) :
+    RunSucceeds s (computeExitEpochAndUpdateChurn (StateTransition := FuluRun) bal)
+      (fun ee s' => ∃ ebtc, s' = { s with exitBalanceToConsume := ebtc, earliestExitEpoch := ee } ∧
+        (computeEpochAtSlot s.slot).toNat + 1 + Const.maxSeedLookahead.toNat ≤ ee.toNat ∧
+        ee.toNat ≤ exitStart s + ejectionStep) := by
+  have hstep : exitStep bal.toNat ≤ ejectionStep := exitStep_mono hbal
+  refine (computeExitEpochAndUpdateChurn_reserves s bal (by omega)).weaken (fun ee s' h => ?_)
+  obtain ⟨ebtc, hs', h1, h2⟩ := h
+  exact ⟨ebtc, hs', h1, by omega⟩
 
 /-- An exit write keeps the registry length and every activation epoch. -/
 def ExitFrame [Preset] (s s' : BeaconState) : Prop :=

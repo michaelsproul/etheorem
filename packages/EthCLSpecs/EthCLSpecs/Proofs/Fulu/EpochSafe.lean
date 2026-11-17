@@ -82,6 +82,21 @@ balance is at most `EJECTION_BALANCE`, and the churn spends at least `exitChurnF
 def ejectionStep [Preset] [Config] : Nat :=
   (Const.ejectionBalanceG.toNat - 1) / exitChurnFloor + 1
 
+/-- How far one exit of `bal` Gwei can move the earliest exit epoch. The churn spends at least
+`exitChurnFloor` per epoch, so the exit needs at most `⌈bal / exitChurnFloor⌉` more epochs. -/
+def exitStep [Preset] [Config] (bal : Nat) : Nat :=
+  (bal - 1) / exitChurnFloor + 1
+
+/-- An ejection is an exit of `EJECTION_BALANCE` at most. -/
+theorem ejectionStep_eq [Preset] [Config] :
+    ejectionStep = exitStep Const.ejectionBalanceG.toNat := rfl
+
+/-- A larger exit moves the earliest exit epoch at least as far. -/
+theorem exitStep_mono [Preset] [Config] {a b : Nat} (h : a ≤ b) : exitStep a ≤ exitStep b := by
+  unfold exitStep
+  have := Nat.div_le_div_right (c := exitChurnFloor) (show a - 1 ≤ b - 1 by omega)
+  omega
+
 /-- The epoch the next exit can land on, at the earliest: `compute_exit_epoch_and_update_churn`
 starts from the larger of `earliest_exit_epoch` and `E + 1 + MAX_SEED_LOOKAHEAD`. -/
 def exitStart [Preset] (v : BeaconState) : Nat :=

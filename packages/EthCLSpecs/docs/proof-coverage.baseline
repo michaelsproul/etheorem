@@ -23,10 +23,12 @@ tier1 EthCLSpecs.Fulu.getExpectedWithdrawals
 tier1 EthCLSpecs.Fulu.getFlagIndexDeltas
 tier1 EthCLSpecs.Fulu.getMaxEffectiveBalance
 tier1 EthCLSpecs.Fulu.getNextSyncCommittee
+tier1 EthCLSpecs.Fulu.getPendingBalanceToWithdraw
 tier1 EthCLSpecs.Fulu.getRandaoMix
 tier1 EthCLSpecs.Fulu.getValidatorFromDeposit
 tier1 EthCLSpecs.Fulu.initiateValidatorExit
 tier1 EthCLSpecs.Fulu.isActiveValidator
+tier1 EthCLSpecs.Fulu.passedShardCommitteePeriod
 tier1 EthCLSpecs.Fulu.pcLoop
 tier1 EthCLSpecs.Fulu.ppdLoop
 tier1 EthCLSpecs.Fulu.processAttestation

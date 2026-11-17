@@ -21,6 +21,8 @@ import EthCLSpecs.Proofs.Fulu.Reachable
 import EthCLSpecs.Proofs.Fulu.ReachableInvariants
 import EthCLSpecs.Proofs.Fulu.StateInvariants
 import EthCLSpecs.Proofs.Fulu.Run
+import EthCLSpecs.Proofs.Fulu.VoluntaryExits
+import EthCLSpecs.Proofs.Fulu.VoluntaryExits.Slashings
 
 /-!
 # `EthCLSpecs.Proofs.Fulu`: the Fulu fork's theorems (index)
@@ -67,4 +69,10 @@ Re-exports:
 * `EthCLSpecs.Proofs.Fulu.ReachableInvariants`: `ReachableState.simpleStateInvariants`, the
   induction; the window bound, slot monotonicity, closure under `stateTransition`, and
   `simpleStateInvariants_not_sufficient`.
+* `EthCLSpecs.Proofs.Fulu.VoluntaryExits`: `voluntaryExits_succeed_of_exitView`, the voluntary
+  exits of a block cannot fail when they name distinct validators and pass `ExitGates`; with
+  `processVoluntaryExit_succeeds` for one exit, and `ExitView` for the steps that run before
+  the exits.
+* `EthCLSpecs.Proofs.Fulu.VoluntaryExits.Slashings`: `exitView_of_slashings`, the proposer and
+  attester slashings of a block keep the exit view for the validators they cannot slash.
 -/
