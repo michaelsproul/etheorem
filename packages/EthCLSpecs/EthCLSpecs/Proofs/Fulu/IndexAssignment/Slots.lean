@@ -67,14 +67,16 @@ omit [Config] [CryptoBackend] in
 /-- The weighing step writes the checkpoints and the justification bits. It keeps the slot,
 the queue and `listSizes`, and the finalized epoch does not fall. The step sets the finalized
 checkpoint to the old one, the old previous-justified one, or the old current-justified one,
-and `hv` puts the old finalized epoch below both. The walk is the one of
+and `hv` puts the old finalized epoch below both. `hv` also puts all three at or below the
+previous epoch, so the new finalized epoch is at or below it too. The walk is the one of
 `Proofs/Fulu/Invariants/Justification.lean`. -/
 theorem weighJustificationAndFinalization_frame (total prevT currT : Gwei) (v : BeaconState)
     (hv : CheckpointsBelowPrevious v) :
     RunEnsures v (weighJustificationAndFinalization (StateTransition := FuluRun) total prevT currT)
       (fun _ w => w.slot = v.slot ∧ w.pendingDeposits = v.pendingDeposits ∧
         listSizes w = listSizes v ∧
-        v.finalizedCheckpoint.epoch ≤ w.finalizedCheckpoint.epoch) := by
+        v.finalizedCheckpoint.epoch ≤ w.finalizedCheckpoint.epoch ∧
+        w.finalizedCheckpoint.epoch ≤ saturatingSub (computeEpochAtSlot v.slot) 1) := by
   unfold weighJustificationAndFinalization
   run_ensures
   all_goals try (call_reads getBlockRoot_readsOnly _ _; run_ensures)
@@ -88,20 +90,29 @@ theorem weighJustificationAndFinalization_frame (total prevT currT : Gwei) (v : 
         first
           | exact UInt64.le_refl _
           | exact hv.1
-          | exact UInt64.le_trans hv.1 hv.2.1⟩
+          | exact UInt64.le_trans hv.1 hv.2.1, by
+        -- The new finalized epoch is the old finalized, previous-justified or
+        -- current-justified one, and `hv` puts each at or below the previous epoch.
+        first
+          | exact hv.2.2
+          | exact UInt64.le_trans hv.2.1 hv.2.2
+          | exact UInt64.le_trans hv.1 (UInt64.le_trans hv.2.1 hv.2.2)⟩
 
 omit [Config] [CryptoBackend] in
 /-- Justification and finalization keeps the slot, the queue and `listSizes`, and the finalized
-epoch does not fall. In the first two epochs the step does nothing. -/
+epoch does not fall. The finalized epoch it leaves is at or below the previous epoch: the
+step can finalize no later epoch. In the first two epochs the step does nothing. -/
 theorem processJustificationAndFinalization_frame (v : BeaconState)
     (hv : CheckpointsBelowPrevious v) :
     RunEnsures v (processJustificationAndFinalization (StateTransition := FuluRun))
       (fun _ w => w.slot = v.slot ∧ w.pendingDeposits = v.pendingDeposits ∧
         listSizes w = listSizes v ∧
-        v.finalizedCheckpoint.epoch ≤ w.finalizedCheckpoint.epoch) := by
+        v.finalizedCheckpoint.epoch ≤ w.finalizedCheckpoint.epoch ∧
+        w.finalizedCheckpoint.epoch ≤ saturatingSub (computeEpochAtSlot v.slot) 1) := by
   unfold processJustificationAndFinalization
   run_ensures
-  · exact ⟨trivial, trivial, trivial, UInt64.le_refl _⟩
+  · exact ⟨trivial, trivial, trivial, UInt64.le_refl _,
+      UInt64.le_trans hv.1 (UInt64.le_trans hv.2.1 hv.2.2)⟩
   · exact weighJustificationAndFinalization_frame _ _ _ v hv
 
 /-! ## What one epoch, and any run of slots, does to the keys and the queue -/
@@ -175,15 +186,20 @@ theorem processSlot_keepsFrame : KeepsFrame (processSlot (StateTransition := Ful
 at. The three intermediate states are `w1` after justification, `w2` before the queue scan and
 `w3` after it. The frame substeps on each side of the scan give `SameDeposits`, and the scan
 reads the finalized epoch of `w2`, which is the finalized epoch of the end state. The slot
-stays through all four parts, so the four eligibility relations compose. -/
+stays through all four parts, so the four eligibility relations compose.
+
+The third fact bounds the finalized epoch the transition ends with: it is at or below the
+epoch before the one that ends. Justification gives the bound, and no later substep writes
+the finalized checkpoint. -/
 theorem processEpoch_progress (v : BeaconState) (hv : SimpleStateInvariants v) :
     RunEnsures v (processEpoch (StateTransition := FuluRun))
-      (fun _ w => DepositProgress v w ∧ EligStep v.slot (registryElig v) (registryElig w)) := by
+      (fun _ w => DepositProgress v w ∧ EligStep v.slot (registryElig v) (registryElig w) ∧
+        w.finalizedCheckpoint.epoch ≤ saturatingSub (computeEpochAtSlot v.slot) 1) := by
   unfold processEpoch
   run_ensures
   refine (processJustificationAndFinalization_frame v hv.checkpointOrder).weaken
     fun _ w1 h1 => ?_
-  obtain ⟨hs1, hq1, hl1, hfin1⟩ := h1
+  obtain ⟨hs1, hq1, hl1, hfin1, hbelow1⟩ := h1
   have hr1 : RegistrySizes w1 := registrySizes_of_listSizes hl1 hv.registrySizes
   have hk1 : registryKeys w1 = registryKeys v := congrArg Prod.fst hl1
   have _hst : StepInv (Ctx.of w1 false) w1 := StepInv.start w1 false hr1
@@ -225,7 +241,7 @@ theorem processEpoch_progress (v : BeaconState) (hv : SimpleStateInvariants v) :
     ⟨by rw [hf3]; exact UInt64.le_refl _, by unfold finalizedSlot; rw [hf3]; exact hscan⟩
   obtain ⟨hfin, hsc⟩ := (h23.same_left hs2).same_right hs
   have hq1' : w1.pendingDeposits.val = v.pendingDeposits.val := congrArg (·.val) hq1
-  refine ⟨⟨UInt64.le_trans hfin1 hfin, ?_⟩, ?_⟩
+  refine ⟨⟨UInt64.le_trans hfin1 hfin, ?_⟩, ?_, ?_⟩
   · rw [← hk1, ← hq1']
     exact hsc
   · -- The four parts: justification keeps the epochs, the frame steps before the scan give
@@ -237,15 +253,28 @@ theorem processEpoch_progress (v : BeaconState) (hv : SimpleStateInvariants v) :
     rw [hs1, registryElig_of_listSizes hl1] at h12
     rw [hs3, hs2, hs1] at h34
     exact (h12.trans (he3.eligStep _)).trans h34
+  · -- The finalized epoch of `w` is the one of `w1`: the frame substeps keep it, and so does
+    -- the scan.
+    rw [hs.2.2, hf3, hs2.2.2]
+    exact hbelow1
 
 /-! ## `process_slots` -/
 
 /-- One slot of progress, from `x` to `z`: what the slot did to the keys and the queue, what it
-did to the eligibility epochs, and the slot count. -/
+did to the eligibility epochs, the slot count, and a bound on the finalized epoch.
+
+The bound reads the epoch of `x`, the state before the slot. An epoch transition leaves a
+finalized epoch at or below the epoch before the one that ends (`processEpoch_progress`),
+and a slot off an epoch boundary keeps the finalized epoch, which `SimpleStateInvariants`
+bounds the same way. `SimpleStateInvariants z` alone gives the weaker bound, the epoch before
+the epoch of `z`. The proof across the Gloas upgrade needs the stronger one: it places every
+deposit a Fulu chain consumes at or below the onboarding cutoff
+(`Proofs/Gloas/IndexAssignmentFromFulu.lean`). -/
 structure SlotProgress (x z : BeaconState) : Prop where
   deposits : DepositProgress x z
   elig : EligStep x.slot (registryElig x) (registryElig z)
   slot : z.slot.toNat = x.slot.toNat + 1
+  finalized : z.finalizedCheckpoint.epoch ≤ saturatingSub (computeEpochAtSlot x.slot) 1
 
 /-- `processSlots` carries any predicate that one slot of progress keeps. The loop is the one
 `processSlots_ensures` walks, and the invariant adds `P` to it. An iteration off an epoch
@@ -297,13 +326,17 @@ theorem processSlots_progress (P : BeaconState → Prop)
           (by rw [e3, e1]; exact hinv1.forkConsistent) hno2 (by rw [e1]; exact hb')
       have hslot2 : (w2.slot + 1).toNat = w.slot.toNat + 1 := by
         rw [slot_succ_toNat _ hno2, e1, hs1]
-      refine ⟨?_, hinv2, hstep w _ hinv hinv2 ⟨?_, ?_, hslot2⟩ hPw⟩
+      refine ⟨?_, hinv2, hstep w _ hinv hinv2 ⟨?_, ?_, hslot2, ?_⟩ hPw⟩
       · show (w2.slot + 1).toNat = _
         rw [hslot2, hw]; omega
       · exact (hprog.1.same_left hsame1).same_right ⟨rfl, rfl, rfl⟩
-      · have h2 : EligStep w1.slot (registryElig w1) (registryElig w2) := hprog.2
+      · have h2 : EligStep w1.slot (registryElig w1) (registryElig w2) := hprog.2.1
         rw [hs1] at h2
         exact hel1.trans h2
+      · have h2 : w2.finalizedCheckpoint.epoch ≤ saturatingSub (computeEpochAtSlot w1.slot) 1 :=
+          hprog.2.2
+        rw [hs1] at h2
+        exact h2
     · rename_i hb
       simp only [box_reduce, beq_iff_eq] at hb
       have hb' : (w1.slot.toNat + 1) % slotsPerEpoch ≠ 0 := by
@@ -317,10 +350,15 @@ theorem processSlots_progress (P : BeaconState → Prop)
       have hinv2 : SimpleStateInvariants { w1 with slot := w1.slot + 1 } := hinv1.succ_slot hno hb'
       have hslot1 : (w1.slot + 1).toNat = w.slot.toNat + 1 := by
         rw [slot_succ_toNat _ hno, hs1]
-      refine ⟨?_, hinv2, hstep w _ hinv hinv2 ⟨?_, hel1, hslot1⟩ hPw⟩
+      refine ⟨?_, hinv2, hstep w _ hinv hinv2 ⟨?_, hel1, hslot1, ?_⟩ hPw⟩
       · show (w1.slot + 1).toNat = _
         rw [hslot1, hw]; omega
       · exact DepositProgress.of_same (hsame1.trans ⟨rfl, rfl, rfl⟩)
+      · -- Off an epoch boundary the finalized epoch stays, and the invariants of `w` bound it.
+        show w1.finalizedCheckpoint.epoch ≤ _
+        rw [hsame1.2.2]
+        exact UInt64.le_trans hinv.checkpointOrder.1
+          (UInt64.le_trans hinv.checkpointOrder.2.1 hinv.checkpointOrder.2.2)
   · intro b w ⟨_, _, hPw⟩
     run_ensures
     exact hPw

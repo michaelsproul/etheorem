@@ -16,8 +16,15 @@ the fork version bumps (`previous := pre.fork.current`,
 `latest_block_hash` comes from the dropped payload header's block hash; the cached
 `latest_execution_payload_bid` is a self-build bid for the pre-state's head (its parent
 hash and root, block hash, RANDAO, gas limit, and slot); and the other ePBS fields
-initialize to their fork-transition values (`execution_payload_availability` all-ones,
-`builder_pending_payments` a vector of empties, the rest empty/zero).
+initialize to their fork-transition values (`execution_payload_availability` all-ones but
+the bit of the fork slot, `builder_pending_payments` a vector of empties, the rest
+empty/zero).
+
+One field departs from v1.7.0-beta.4. The unset bit of the fork slot is consensus-specs
+#5808, which upstream merged after the pinned release. The branch
+`dapplion:gloas-onboard-cutoff` carries it, and with the onboarding function of that branch
+(`Gloas/Operations.lean`) the Fulu to Gloas upgrade here is the upgrade of that branch.
+`DISCREPANCIES.md` records the deviation.
 
 The spec then sets `post.ptc_window = initialize_ptc_window(post)` and runs
 `onboard_builders_from_pending_deposits(post)`. Both read and write the Gloas state, so they
@@ -140,7 +147,12 @@ def upgradeToGloas [Preset] [HasherTag] (gloasForkVersion : Version) (pre : Fulu
     proposerLookahead             := pre.proposerLookahead
     builders                      := default
     nextWithdrawalBuilderIndex    := 0
-    executionPayloadAvailability  := ⟨BitVec.allOnes _⟩
+    -- Every payload is available, but the one of the fork slot: `process_slot` would have
+    -- unset that bit at the previous slot, had it run under the Gloas rules
+    -- (consensus-specs #5808).
+    executionPayloadAvailability  :=
+      bitSet (n := Const.slotsPerHistoricalRoot) ⟨BitVec.allOnes _⟩
+        (umodIdx pre.slot Const.slotsPerHistoricalRoot) false
     builderPendingPayments        := Vector.replicate (2 * Const.slotsPerEpoch) default
     builderPendingWithdrawals     := default
     latestBlockHash               := pre.latestExecutionPayloadHeader.blockHash

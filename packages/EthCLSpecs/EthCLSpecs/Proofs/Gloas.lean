@@ -19,6 +19,8 @@ import EthCLSpecs.Proofs.Gloas.ForkChoiceRun
 import EthCLSpecs.Proofs.Gloas.GetPtc
 import EthCLSpecs.Proofs.Gloas.FinalizedValidators
 import EthCLSpecs.Proofs.Gloas.IndexAssignment
+import EthCLSpecs.Proofs.Gloas.IndexAssignment.Onboarding
+import EthCLSpecs.Proofs.Gloas.IndexAssignmentFromFulu
 import EthCLSpecs.Proofs.Gloas.InitializePtcWindow
 import EthCLSpecs.Proofs.Gloas.InitiateBuilderExit
 import EthCLSpecs.Proofs.Gloas.Invariants.Block
@@ -93,11 +95,16 @@ Re-exports:
   windows).
 * `EthCLSpecs.Proofs.Gloas.IndexAssignment`: the Gloas `indexAssignment_of_compatibleFinality`,
   for two chains from one reachable Gloas state, so with the Gloas upgrade behind the common
-  state; `IndexAssignmentFromFulu` is the same statement with a Fulu common state, and
-  `Tests/GloasPyspecReplayPins.lean` and `Tests/GloasValidatorIndexPins.lean` prove it false.
+  state; `IndexAssignmentFromFulu` is the same statement with a Fulu common state.
   The modules under `IndexAssignment/` are the Gloas counterparts of the Fulu ones: the
   deposit frame, one `KeepsFrame` fact per spec step, the contract of
-  `processPendingDeposits`, and `processSlots_progress`.
+  `processPendingDeposits`, and `processSlots_progress`. `IndexAssignment.Onboarding` adds
+  the contract of the builder onboarding: read through the proof-of-possession check, the
+  queue it leaves is the old queue without the builder deposits above the onboarding cutoff.
+* `EthCLSpecs.Proofs.Gloas.IndexAssignmentFromFulu`: `indexAssignment_fromFulu`, the index
+  assignment for two Gloas chains from one Fulu state, each of which passes the upgrade on
+  its own, and `indexAssignmentFromFulu`, the proof of `IndexAssignmentFromFulu`. The proof
+  rests on the onboarding cutoff.
 * `EthCLSpecs.Proofs.Gloas.FinalizedValidators`: the finalized validators across the Gloas
   upgrade. `ReachableState.follows` carries `Follows` through the `upgrade` step,
   `finalizedValidators_pubkey_eq_fromFulu` is the theorem for a Fulu common state, and

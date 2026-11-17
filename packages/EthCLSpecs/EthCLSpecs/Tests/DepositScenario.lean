@@ -4,10 +4,11 @@ import EthCLSpecs.Proofs.Fulu.Reachable
 # `EthCLSpecs.Tests.DepositScenario`: one Fulu state, two chains, and a deposit queue
 
 The Fulu half of a concrete scenario that `GloasValidatorIndexPins` and
-`HezeValidatorIndexPins` finish. Each of them proves that two chains with one finalized
-checkpoint can assign one validator index to two public keys, when a fork upgrade lies between
-the common ancestor and the two heads. This module builds the common ancestor and the one block
-that separates the chains.
+`HezeValidatorIndexPins` finish. Each of them runs two chains with one finalized checkpoint
+across a fork upgrade, and compares the public keys the chains hold at one validator index.
+Across the Gloas upgrade the keys agree, by the onboarding cutoff. Across the Heze upgrade
+they differ. This module builds the common ancestor and the one block that separates the
+chains.
 
 ## The two chains
 

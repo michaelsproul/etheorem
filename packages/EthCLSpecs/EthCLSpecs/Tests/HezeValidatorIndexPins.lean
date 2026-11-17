@@ -6,7 +6,9 @@ import EthCLSpecs.Tests.DepositScenario
 
 The Heze counterpart of `GloasValidatorIndexPins`, which states the property and the argument
 for one fork. Two chains with one finalized checkpoint can assign one validator index to two
-public keys, when the Heze upgrade lies between their common ancestor and their heads.
+public keys, when the Heze upgrade lies between their common ancestor and their heads. The
+Gloas upgrade has an onboarding cutoff that rules the split out, and `GloasValidatorIndexPins`
+runs the proved property on its pair. The Heze upgrade has no such rule.
 
 ## Why the upgrade breaks it
 
@@ -14,7 +16,7 @@ Heze's `applyPendingDeposit` (`Heze/EpochProcessing.lean:86-95`) carries EIP-836
 deposit that would make a new validator with BLS credentials, prefix `0x00`, and the rule
 covers a deposit submitted before Heze. The Fulu and Gloas rules make a validator from the
 same deposit. The outcome depends on one fact: did the queue scan reach the deposit before
-the Heze fork epoch? As at the Gloas upgrade, the scan's progress belongs to one chain.
+the Heze fork epoch? The scan's progress belongs to one chain.
 
 The rule changes what a queued deposit becomes, and the change takes effect at a fixed epoch.
 Any fork with such a change splits the assignment in the same way.

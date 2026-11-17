@@ -152,27 +152,52 @@ forkdef applyDepositForBuilder (pubkey : BLSPubkey) (wc : Bytes32) (amount : Gwe
     if isValidDepositSignature pubkey wc amount sig then
       addBuilderToRegistry pubkey Const.payloadBuilderVersion (addressOfCred wc) amount slot
 
-/-- `onboard_builders_from_pending_deposits`: at the fork, drain the pending-deposit
-queue, applying builder deposits (existing builder pubkey, or a builder-credential
-deposit) to the registry and keeping validator deposits (and valid new-validator
-deposits) queued. The builder-pubkey set is reread each iteration because
-`applyDepositForBuilder` can append a builder. -/
+/-- `onboard_builders_from_pending_deposits`: at the fork, walk the pending-deposit queue once
+and make builders from the builder deposits in it. The rest of the queue stays.
+
+This body is **not** the v1.7.0-beta.4 one. It is the function of the consensus-specs branch
+`dapplion:gloas-onboard-cutoff`: the onboarding rule of consensus-specs #5736, plus the
+onboarding cutoff that the branch adds. `DISCREPANCIES.md` records the deviation from the
+pinned release, with the one other field of the upgrade that follows the branch
+(`Gloas/Upgrade.lean`).
+
+* A deposit without builder withdrawal credentials stays queued.
+* A deposit with a slot at or below the cutoff stays queued. The cutoff is the first slot of
+  epoch `GLOAS_FORK_EPOCH - 2`. The last Fulu epoch transition can finalize no later epoch,
+  so a chain may have applied such a deposit before the fork, as a validator deposit. The
+  spec writes the epoch as `max(current_epoch, 2) - 2`, which is `0` in the first two epochs.
+* A later builder-credential deposit funds a builder. It tops up a builder with its key, or it
+  makes a new builder when its signature is valid (`applyDepositForBuilder`, which the spec
+  inlines here).
+* A later builder-credential deposit with an unknown builder key and an invalid signature
+  funds nothing. It stays queued as a top-up when a validator holds its key, or when a queued
+  deposit with a valid signature names its key. The step drops it otherwise.
+
+The builder keys are read again in each iteration, because `applyDepositForBuilder` can
+append a builder. -/
 forkdef onboardBuildersFromPendingDeposits : StateTransition Unit := do
   let state ← get
   let validatorPubkeys := (sszGet state validators).map (·.pubkey)
+  -- Deposits up to this slot may have been applied before the fork on another branch.
+  let cutoffSlot := computeStartSlotAtEpoch (max (currentEpochOf state) 2 - 2)
   let mut kept : Array PendingDeposit := #[]
 
   for d in (sszGet state pendingDeposits) do
-    let state ← get
-    let builderPubkeys := (sszGet state builders).map (·.pubkey)
-    let keep :=
-      validatorPubkeys.contains d.pubkey ||
-      (!builderPubkeys.contains d.pubkey &&
-        (!isBuilderWithdrawalCredential d.withdrawalCredentials || isPendingValidator kept d.pubkey))
-    if keep then
+    -- Only builder-credential deposits can fund builders at the fork.
+    if !isBuilderWithdrawalCredential d.withdrawalCredentials then
+      kept := kept.push d
+    -- Only deposits that no branch could have applied before the fork can fund builders.
+    else if d.slot ≤ cutoffSlot then
       kept := kept.push d
     else
-      applyDepositForBuilder d.pubkey d.withdrawalCredentials d.amount d.signature d.slot
+      let state ← get
+      let builderPubkeys := (sszGet state builders).map (·.pubkey)
+      if builderPubkeys.contains d.pubkey
+          || isValidDepositSignature d.pubkey d.withdrawalCredentials d.amount d.signature then
+        applyDepositForBuilder d.pubkey d.withdrawalCredentials d.amount d.signature d.slot
+      -- Preserve validator top-ups when no builder can receive them.
+      else if validatorPubkeys.contains d.pubkey || isPendingValidator kept d.pubkey then
+        kept := kept.push d
 
   -- `pendingDeposits` is a progressive list at alpha.12: the kept deposits go back
   -- whole, with no `PENDING_DEPOSITS_LIMIT` cap and no `.listFull` raise.

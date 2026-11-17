@@ -1,13 +1,15 @@
-import EthCLSpecs.Proofs.Gloas.IndexAssignment
+import EthCLSpecs.Proofs.Gloas.IndexAssignmentFromFulu
 import EthCLSpecs.Tests.DepositScenario
 
 /-!
-# `EthCLSpecs.Tests.GloasValidatorIndexPins`: the Gloas upgrade splits the index assignment
+# `EthCLSpecs.Tests.GloasValidatorIndexPins`: the index assignment across the Gloas upgrade, on one pair of chains
 
 A validator index is a position in `state.validators`. A client that keeps one map from index
 to public key for every chain it follows relies on one property. Two chains with compatible
-finality hold the same public key at every index both have assigned. This module proves the
-property false across the Gloas upgrade, with a concrete pair of chains.
+finality hold the same public key at every index both have assigned.
+`indexAssignment_fromFulu` (`Proofs/Gloas/IndexAssignmentFromFulu.lean`) proves the property
+across the Gloas upgrade. This module runs it on a concrete pair of chains: the pair that
+splits the index assignment when the upgrade has no onboarding cutoff.
 
 ## The property inside one fork
 
@@ -18,24 +20,29 @@ finalized prefix create validators in one order, each at the pace its own churn 
 `indexAssignment_of_compatibleFinality` proves it for Fulu chains
 (`Proofs/Fulu/IndexAssignment.lean`) and for Gloas chains (`Proofs/Gloas/IndexAssignment.lean`).
 
-## Why the upgrade breaks it
+## What the upgrade does to the queue
 
-`onboardBuildersFromPendingDeposits` (`Gloas/Operations.lean:160-180`) runs once, at the
-fork. It takes out of the queue each deposit that carries the builder credential prefix
-`0xB0` and names no validator, and it makes a builder from that deposit. Before the fork,
-Fulu's `ppdLoop` (`Fulu/EpochProcessing.lean:234-267`) makes a validator from the same
-deposit. The outcome depends on one fact: did the queue scan reach the deposit before the
-fork epoch?
+`onboardBuildersFromPendingDeposits` (`Gloas/Operations.lean`) runs once, at the fork. It
+takes builder deposits out of the queue and makes builders from them. Before the fork, Fulu's
+`ppdLoop` (`Fulu/EpochProcessing.lean:234-267`) makes a validator from the same deposit, when
+the queue scan reaches it.
 
 The scan's progress belongs to one chain. It depends on when that chain finalized the
-deposit's slot, and on the churn the earlier deposits consumed. Two chains can share the
-deposit and the finalized checkpoint and still differ in both.
+deposit's slot, and on the churn the earlier deposits consumed. So at v1.7.0-beta.4 two chains
+can share a deposit and a finalized checkpoint, and one makes a validator from the deposit
+while the other makes a builder. The registries then hold two keys at one index.
+
+The onboarding cutoff closes the gap. The step leaves each deposit with a slot at or below the
+first slot of epoch `GLOAS_FORK_EPOCH - 2` in the queue. No Fulu scan consumes a deposit above
+that slot, because the last Fulu epoch transition finalizes no later epoch. So a deposit that
+one chain applied before the fork stays a validator deposit on every chain.
 
 ## The scenario
 
-The preset is `minimal`, and the config schedules Gloas at epoch 65. `DepositScenario` builds
-the common ancestor, a Fulu state at slot 519 with sixteen validators and a finalized
-checkpoint at epoch 62. Its deposit queue holds three deposits, all from finalized slots:
+The preset is `minimal`, and the config schedules Gloas at epoch 65. The onboarding cutoff is
+slot 504, the first slot of epoch 63. `DepositScenario` builds the common ancestor, a Fulu
+state at slot 519 with sixteen validators and a finalized checkpoint at epoch 62. Its deposit
+queue holds three deposits, all from finalized slots, so all at or below the cutoff:
 
 1. `topUp 64`: 64 ETH for validator 1. The amount equals the churn of one epoch.
 2. `builderDeposit`: 32 ETH for the new key 101, with `0xB0` credentials and a valid signature.
@@ -47,34 +54,31 @@ validator 1.
 | Step | Chain A | Chain B |
 | --- | --- | --- |
 | Epoch 64 transition, Fulu | `topUp` applies and uses the churn; the scan stops | validator 1 is exiting, so `topUp` is postponed; keys 101 and 102 join, at 16 and 17 |
-| Upgrade at slot 520 | `builderDeposit` leaves the queue and becomes a builder | no builder deposit is left |
-| Epoch 65 transition, Gloas | `validatorDeposit` joins, at index 16 | no change to the registry |
+| Upgrade at slot 520 | `builderDeposit` is at or below the cutoff and stays queued; no builder | no builder deposit is left |
+| Epoch 65 transition, Gloas | keys 101 and 102 join, at 16 and 17 | no change to the registry |
 
-At slot 528 both chains hold the ancestor's finalized checkpoint. Index 16 holds key 102 on
-chain A and key 101 on chain B.
+At slot 528 both chains hold the ancestor's finalized checkpoint, key 101 at index 16 and key
+102 at index 17. At v1.7.0-beta.4 the upgrade of chain A makes a builder from
+`builderDeposit`, and key 102 takes index 16 there.
 
-The exit is one lever among several. Finality timing is another. Fulu's scan stops at a
-deposit whose slot is above the finalized slot, so a chain that finalizes the deposits' slots
-one epoch after its sibling splits the same way, with no exit and no top-up. The upstream
-pyspec reproduces that variant from a genesis state, at v1.7.0-beta.4 and at its current
-development head (`SPECS_ARCHITECTURE.md` §11.6). `GloasPyspecReplayPins` replays the
-pyspec's blocks for that variant and proves the same split.
+The exit is one lever among several. Finality timing is another, and `GloasPyspecReplayPins`
+replays that variant on blocks the upstream pyspec built.
 
-## What the theorem states
+## The cutoff boundary
 
-`validatorIndex_diverges_across_upgrade` gives two Gloas states. Both are reachable from one
+`cutoff_boundary` pins the two sides of the cutoff, as the upstream test
+`test_fork_builder_deposit_at_onboarding_cutoff_stays_pending` does. A builder deposit at slot
+504 stays queued through the upgrade, and one at slot 505 becomes a builder.
+
+## What the theorems state
+
+`validatorIndex_agrees_across_upgrade` gives two Gloas states. Both are reachable from one
 Fulu state at `validated = true`, so every block signature and state root is checked. Both sit
-at one slot, and both hold the finalized checkpoint of the common Fulu state. They disagree on
-the public key at an index both have assigned. The anchor set holds one state
-(`Anchors.onlyFulu`), which makes `ReachableState` the relation "reachable from that state".
-
-`indexAssignmentFromFulu_false` is the same fact as a negation. `IndexAssignmentFromFulu`
-(`Proofs/Gloas/IndexAssignment.lean`) is the statement of the in-fork theorem
-`indexAssignment_of_compatibleFinality` with a Fulu state as the common state: the same
-`ReachableState` premises and the same `CompatibleFinality`. It is false. The ancestor
-satisfies `SimpleStateInvariants` and the config satisfies `ConfigValid`, so the pair meets
-each hypothesis of the in-fork theorem, and the one difference is that the upgrade lies after
-the common ancestor.
+at one slot, and both hold the finalized checkpoint of the common Fulu state. They hold one
+public key at every index. The anchor set holds one state (`Anchors.onlyFulu`), which makes
+`ReachableState` the relation "reachable from that state". The agreement is the conclusion of
+`indexAssignment_fromFulu`, so the pair shows that the hypotheses of that theorem hold
+together on a chain that crosses the upgrade.
 
 ## Trust, and why this is a pin
 
@@ -85,8 +89,8 @@ trusts the compiler and the two native libraries. `fastHasherTag` names the FFI 
 whose `Hasher` instance has a law proved from `sha256BatchCombine_eq_spec` and
 `sha256Combine_eq_spec`, so `#print axioms` lists both. No step here rewrites with them.
 
-The proof-coverage audit keeps compiled evaluation out of `EthCLSpecs/Proofs/`, so the theorem
-sits with the pins. Fires on `lake build EthCLSpecsTests` (`just ethcl-test`).
+The proof-coverage audit keeps compiled evaluation out of `EthCLSpecs/Proofs/`, so the
+evaluated facts sit with the pins. Fires on `lake build EthCLSpecsTests` (`just ethcl-test`).
 -/
 
 set_option autoImplicit false
@@ -116,8 +120,9 @@ attribute [local instance] preset config fastHasherTag CryptoBackend.ffi
 
 /-! ## The queue and the two chains -/
 
-/-- 32 ETH for the new key 101, with builder credentials. Fulu makes a validator from it. The
-Gloas upgrade makes a builder from it. -/
+/-- 32 ETH for the new key 101, with builder credentials, from slot 481. Fulu makes a validator
+from it. The slot is at or below the onboarding cutoff 504, so the Gloas upgrade leaves it in
+the queue, and Gloas makes a validator from it too. -/
 def builderDeposit : Fulu.PendingDeposit := newKeyDeposit 101 0xB0 481
 
 /-- 32 ETH for the new key 102, an ordinary validator deposit. -/
@@ -134,12 +139,12 @@ def ancestor : Fulu.BeaconState := anchor queue
 and `builderDeposit` is at the front of the queue. -/
 def fuluA : Fulu.BeaconState := quietBoundary queue
 
-/-- Chain A after the upgrade. `builderDeposit` has left the queue and is a builder. -/
+/-- Chain A after the upgrade. `builderDeposit` is still in the queue, and no builder exists. -/
 def upgradedA : Gloas.BeaconState :=
   postOf (Gloas.completeUpgradeToGloas (StateTransition := GloasRun))
     (Gloas.upgradeToGloas gloasForkVersion fuluA)
 
-/-- Chain A one epoch later, at slot 528. `validatorDeposit` has joined at index 16. -/
+/-- Chain A one epoch later, at slot 528. Keys 101 and 102 have joined, at 16 and 17. -/
 def chainA : Gloas.BeaconState :=
   postOf (Gloas.processSlots (StateTransition := GloasRun) 528) upgradedA
 
@@ -199,23 +204,62 @@ theorem reachable_chainB :
 
 /-- The path of the two new keys through each chain.
 
-* Chain A enters the fork with its sixteen validators, and the upgrade makes key 101 the one
-  builder. One epoch later key 102 is validator 16.
+* Chain A enters the fork with its sixteen validators. The upgrade makes no builder and
+  leaves both deposits in the queue. One epoch later keys 101 and 102 are validators 16
+  and 17.
 * Chain B enters the fork with key 101 at index 16 and key 102 at index 17. The upgrade makes
   no builder, and the registry does not change after it. -/
 theorem scenario_anatomy :
     fuluA.validators.val.size = 16 ∧
-    upgradedA.builders.val.map (·.pubkey) = #[pubkey 101] ∧
-    (chainA.validators.val.map (·.pubkey)).extract 16 = #[pubkey 102] ∧
+    upgradedA.builders.val.size = 0 ∧
+    upgradedA.pendingDeposits.val.map (·.pubkey) = #[pubkey 101, pubkey 102] ∧
+    (chainA.validators.val.map (·.pubkey)).extract 16 = #[pubkey 101, pubkey 102] ∧
     (fuluB.validators.val.map (·.pubkey)).extract 16 = #[pubkey 101, pubkey 102] ∧
     upgradedB.builders.val.size = 0 ∧
     (chainB.validators.val.map (·.pubkey)).extract 16 = #[pubkey 101, pubkey 102] := by
   native_decide
 
-/-! ## The theorem -/
+/-! ## The cutoff boundary -/
 
-/-- Two chains with one finalized checkpoint can assign one validator index to two public
-keys, when the Gloas upgrade lies between their common ancestor and their heads.
+/-- Two builder deposits for new keys, one at the cutoff slot 504 and one at slot 505. Neither
+slot is finalized at the ancestor, so no Fulu scan consumes either. -/
+def boundaryQueue : Array Fulu.PendingDeposit :=
+  #[newKeyDeposit 103 0xB0 504, newKeyDeposit 104 0xB0 505]
+
+/-- The quiet chain with `boundaryQueue`, after the upgrade. -/
+def upgradedBoundary : Gloas.BeaconState :=
+  postOf (Gloas.completeUpgradeToGloas (StateTransition := GloasRun))
+    (Gloas.upgradeToGloas gloasForkVersion (quietBoundary boundaryQueue))
+
+/-- The two sides of the onboarding cutoff. Both deposits reach the fork in the queue, and the
+upgrade accepts the state. The deposit at slot 504 stays queued, and the deposit at slot 505
+is the one builder. -/
+theorem cutoff_boundary :
+    (quietBoundary boundaryQueue).pendingDeposits.val.map (·.pubkey)
+      = #[pubkey 103, pubkey 104] ∧
+    succeeds (Gloas.completeUpgradeToGloas (StateTransition := GloasRun))
+      (Gloas.upgradeToGloas gloasForkVersion (quietBoundary boundaryQueue)) = true ∧
+    upgradedBoundary.pendingDeposits.val.map (·.pubkey) = #[pubkey 103] ∧
+    upgradedBoundary.builders.val.map (·.pubkey) = #[pubkey 104] := by
+  native_decide
+
+/-! ## The theorem on the pair -/
+
+/-- The scenario's config satisfies the rules the proofs put on a config. -/
+theorem config_valid : @Gloas.ConfigValid preset config := by
+  apply @Gloas.ConfigValid.mk preset config <;> decide
+
+/-- The common ancestor satisfies `SimpleStateInvariants`, the hypothesis the theorem puts on
+its anchors: the header is at slot 518 of 519, the five registry lists have sixteen entries,
+the three checkpoints are at epoch 62 of 64, and the `fork` field names Fulu. -/
+theorem ancestor_invariants : Fulu.SimpleStateInvariants ancestor :=
+  ⟨by native_decide,
+    ⟨by native_decide, by native_decide, by native_decide, by native_decide⟩,
+    ⟨by native_decide, by native_decide, by native_decide⟩,
+    ⟨by native_decide, by native_decide⟩⟩
+
+/-- Two chains with one finalized checkpoint hold one public key at every validator index,
+with the Gloas upgrade between their common ancestor and their heads.
 
 The statement, at the `minimal` preset with Gloas at epoch 65:
 
@@ -224,17 +268,20 @@ The statement, at the `minimal` preset with Gloas at epoch 65:
 * `w'` and `w''` are Gloas states at one slot.
 * Their finalized checkpoints are equal, and equal to the checkpoint of `u`. Neither chain
   finalized a block after `u`, so the two finalities are compatible in the strongest sense.
-* At index `i`, which both registries hold, the public keys differ.
+* Each registry has eighteen validators, two more than `u`.
+* At every index the public keys are equal.
 
-The witnesses are `chainA` and `chainB`, and the index is 16. `scenario_anatomy` records why:
-`onboardBuildersFromPendingDeposits` made a builder from a deposit on one chain, and Fulu's
-`processPendingDeposits` had made a validator from it on the other.
+The witnesses are `chainA` and `chainB`. The last part is `indexAssignment_fromFulu`, applied
+to the reachability facts: the ancestor is reachable as an anchor and satisfies
+`SimpleStateInvariants`, and both chains have finalized no slot at or after the slot of the
+ancestor. Their finalized epoch is 62, which starts at slot 496, and the ancestor is at slot
+519. `scenario_anatomy` evaluates the same keys.
 
-The proof evaluates the compiled state transition by `native_decide`, on the FFI SHA-256 and
-the blst backend, so it trusts the compiler and the two native libraries. The two SHA-256
-equivalence axioms appear in its axiom list through the `Hasher` instance of the FFI
+The other parts evaluate the compiled state transition by `native_decide`, on the FFI SHA-256
+and the blst backend, so the theorem trusts the compiler and the two native libraries. The two
+SHA-256 equivalence axioms appear in its axiom list through the `Hasher` instance of the FFI
 `Sha256`; the module docstring says why. -/
-theorem validatorIndex_diverges_across_upgrade :
+theorem validatorIndex_agrees_across_upgrade :
     ∃ (u : Fulu.BeaconState) (w' w'' : Gloas.BeaconState),
       Gloas.ReachableState (Gloas.Anchors.onlyFulu u) true farFutureEpoch w' ∧
       Gloas.ReachableState (Gloas.Anchors.onlyFulu u) true farFutureEpoch w'' ∧
@@ -242,41 +289,14 @@ theorem validatorIndex_diverges_across_upgrade :
       w'.finalizedCheckpoint = w''.finalizedCheckpoint ∧
       w'.finalizedCheckpoint.epoch = u.finalizedCheckpoint.epoch ∧
       w'.finalizedCheckpoint.root = u.finalizedCheckpoint.root ∧
-      ∃ (i : Nat) (h' : i < w'.validators.val.size) (h'' : i < w''.validators.val.size),
-        w'.validators.val[i].pubkey ≠ w''.validators.val[i].pubkey :=
+      w'.validators.val.size = 18 ∧ w''.validators.val.size = 18 ∧
+      ∀ (i : Nat) (h' : i < w'.validators.val.size) (h'' : i < w''.validators.val.size),
+        w'.validators.val[i].pubkey = w''.validators.val[i].pubkey :=
   ⟨ancestor, chainA, chainB, reachable_chainA, reachable_chainB, by native_decide,
-    by native_decide, by native_decide, by native_decide,
-    16, by native_decide, by native_decide, by native_decide⟩
-
-/-! ## The property, negated -/
-
-/-- The scenario's config satisfies the rules the proofs put on a config. -/
-theorem config_valid : @Gloas.ConfigValid preset config := by
-  apply @Gloas.ConfigValid.mk preset config <;> decide
-
-/-- The common ancestor satisfies `SimpleStateInvariants`, the hypothesis the in-fork theorem
-puts on its anchors: the header is at slot 518 of 519, the five registry lists have sixteen
-entries, the three checkpoints are at epoch 62 of 64, and the `fork` field names Fulu. -/
-theorem ancestor_invariants : Fulu.SimpleStateInvariants ancestor :=
-  ⟨by native_decide,
-    ⟨by native_decide, by native_decide, by native_decide, by native_decide⟩,
-    ⟨by native_decide, by native_decide, by native_decide⟩,
-    ⟨by native_decide, by native_decide⟩⟩
-
-/-- The index assignment is not stable across the Gloas upgrade: `IndexAssignmentFromFulu` is false.
-
-`IndexAssignmentFromFulu` is the statement of the in-fork theorem
-`indexAssignment_of_compatibleFinality` with a Fulu state as the common state. The witness is
-the ancestor, which is reachable as an anchor and satisfies `SimpleStateInvariants`, with
-`chainA` and `chainB` at index 16. Both chains have finalized no slot at or after the slot of
-the ancestor: their finalized epoch is 62, which starts at slot 496, and the ancestor is at
-slot 519. The proof trusts the compiler and the two native libraries, as
-`validatorIndex_diverges_across_upgrade` does. -/
-theorem indexAssignmentFromFulu_false : ¬ Gloas.IndexAssignmentFromFulu :=
-  Gloas.not_indexAssignmentFromFulu (anchors := Fulu.Anchors.only ancestor)
-    (fun _ h => h ▸ ancestor_invariants) (.anchor rfl (by native_decide))
-    reachable_chainA reachable_chainB
-    (Or.inl (by unfold Gloas.FinalizedBelow; native_decide))
-    (i := 16) (by native_decide) (by native_decide) (by native_decide)
+    by native_decide, by native_decide, by native_decide, by native_decide, by native_decide,
+    Gloas.indexAssignment_fromFulu (anchors := Fulu.Anchors.only ancestor)
+      (fun _ h => h ▸ ancestor_invariants) (.anchor rfl (by native_decide))
+      reachable_chainA reachable_chainB
+      (Or.inl (by unfold Gloas.FinalizedBelow; native_decide))⟩
 
 end EthCLSpecs.Tests.GloasValidatorIndexPins

@@ -1154,7 +1154,8 @@ sites.
 A validator index is a position in `state.validators`. A client keeps one map from index to
 public key for every chain it follows. That map is sound under one property: two chains with
 compatible finality hold the same public key at every index both have assigned. The property
-holds inside each fork and fails across each upgrade. Both halves are theorems about one
+holds inside each fork. Across the Gloas upgrade it holds with the onboarding cutoff, and it
+fails without it. Across the Heze upgrade it fails. Each of those facts is a theorem about one
 statement.
 
 **The statement.** It takes a common state `t` and two end states `w'` and `w''`.
@@ -1196,54 +1197,84 @@ history the chains share. The proofs rest on Lean's three standard axioms.
   chain from `t` sits at the slot of `t` or later, which takes `CompatibleFinality` to
   `FinalizedBefore`.
 
-**Across an upgrade.** `IndexAssignmentFromFulu`, in the Gloas and Heze theorem modules, is
-the same statement with `t` a Fulu state, at `validated = true`. Each chain then passes the
-upgrade on its own. The statement is false. Three pins modules prove
-`¬ IndexAssignmentFromFulu` (`indexAssignmentFromFulu_false`), each from a pair of end
-states at one slot, with one finalized checkpoint and two public keys at one index. Equal
-finalized checkpoints are compatible under every reading of the term, so the pair refutes the
-property for each such reading.
+**Across the Gloas upgrade.** `IndexAssignmentFromFulu`, in the Gloas and Heze theorem
+modules, is the same statement with `t` a Fulu state, at `validated = true`. Each chain then
+passes the upgrade on its own. For Gloas the statement is a theorem: `indexAssignmentFromFulu`
+(`Proofs/Gloas/IndexAssignmentFromFulu.lean`), with `indexAssignment_fromFulu` for each
+`validated` flag and each end of the Gloas window. The proof rests on Lean's three standard
+axioms.
 
-* `Tests/GloasPyspecReplayPins.lean` uses chains the upstream pyspec built. The genesis state
-  and all 55 signed blocks come from the pyspec, and `Tests/ChainReplay.lean` replays them
-  with each signature and state root checked. The common state is the chain at slot 40. The
-  two chains differ in finality timing alone, and they disagree at index 64.
-* `Tests/GloasValidatorIndexPins.lean` and `Tests/HezeValidatorIndexPins.lean` start at a
-  hand-built Fulu state, one epoch before the fork, and need one block. They disagree at
-  index 16.
+The theorem is about a spec that deviates from the pinned release. The Fulu to Gloas upgrade
+is the upgrade of the consensus-specs branch `dapplion:gloas-onboard-cutoff` (commit
+`e4bd955`): the onboarding rule of consensus-specs #5736, the payload-availability bit of
+#5808, and the onboarding cutoff the branch adds (`DISCREPANCIES.md`, "Gloas"). Between the
+pinned release and the branch, no other change touches the state transition of Fulu or
+Gloas. The cutoff is the first slot of epoch `GLOAS_FORK_EPOCH - 2`. The step makes a builder
+from a deposit only when the deposit carries builder credentials and a slot above the cutoff.
 
-Each common state is reachable from an anchor that satisfies `SimpleStateInvariants`, so each
-pair meets every hypothesis of the in-fork theorem. The place of the upgrade is the one
-difference.
+* **The gap the cutoff closes.** The onboarding takes builder deposits out of the queue and
+  makes builders from them. Fulu's `processPendingDeposits` makes a validator from the same
+  deposit when the scan reaches it before the fork. The queue position a chain has reached by
+  the fork epoch belongs to that chain: it depends on when the chain finalized the deposit's
+  slot, and on the churn the earlier deposits consumed. So without the cutoff one chain makes
+  a validator from a deposit and another makes a builder from it.
+* **No Fulu scan consumes a deposit above the cutoff.** A scan consumes a deposit whose slot
+  is at or below the first slot of the finalized epoch. An epoch transition leaves a finalized
+  epoch at or below the epoch before the one that ends (`SlotProgress.finalized`,
+  `Proofs/Fulu/IndexAssignment/Slots.lean`), and the last Fulu transition ends epoch
+  `GLOAS_FORK_EPOCH - 1`.
+* **The onboarding takes no deposit at or below the cutoff.**
+  `onboardBuildersFromPendingDeposits_ensures` (`Proofs/Gloas/IndexAssignment/Onboarding.lean`)
+  states the queue the step leaves. Read through the proof-of-possession check, it is the old
+  queue without the builder deposits above the cutoff.
+* **One reading of the queue.** The proof reads each queue without its deposits with an
+  invalid signature, and each Fulu queue without the deposits the onboarding will take. A
+  deposit with an invalid signature adds no validator, so the reading loses no key. Under it a
+  Fulu scan, the upgrade and a Gloas scan each consume a prefix of one queue, and the list
+  argument applies as it does inside a fork. The onboarding keeps or drops a deposit with an
+  invalid signature by rules that read the registry, and the reading removes those rules from
+  the argument.
 
-* **The Gloas upgrade.** `onboardBuildersFromPendingDeposits` takes each queued deposit with
-  `0xB0` credentials and an unknown key out of the queue, and makes a builder from it. Fulu's
-  `processPendingDeposits` makes a validator from the same deposit when the scan reaches it
-  before the fork.
-* **The Heze upgrade.** Heze's `applyPendingDeposit` drops a queued deposit with `0x00`
-  credentials and an unknown key (EIP-8365). The Fulu and Gloas rules make a validator from
-  it.
+Two pins modules run the theorem on concrete chains, at `validated = true`.
 
-Both cases have one cause. A fork changes what a queued deposit becomes, at a fixed epoch.
-The queue position a chain has reached by that epoch belongs to that chain: it depends on
-when the chain finalized the deposit's slot, and on the churn the earlier deposits consumed.
-In the two hand-built scenarios one block decides it. A voluntary exit postpones the top-up at
-the front of the queue, and the churn then covers the deposits behind it. In the replayed
-scenario finality decides it: one chain finalizes the deposits' slot at the last Fulu epoch
-transition, and the other one epoch later.
+* `Tests/GloasPyspecReplayPins.lean` uses chains the upstream pyspec built, from a genesis
+  state. `Tests/ChainReplay.lean` replays all 55 signed blocks with each signature and state
+  root checked. The common state is the chain at slot 40. The two chains differ in finality
+  timing alone. The pyspec is the one of the branch, so the replay also checks the Lean
+  upgrade against the Python text, on a queue that takes each branch of the onboarding
+  function.
+* `Tests/GloasValidatorIndexPins.lean` starts at a hand-built Fulu state, one epoch before
+  the fork, and needs one block. A voluntary exit postpones the top-up at the front of the
+  queue, and the churn then covers the deposits behind it. The module also pins the two sides
+  of the cutoff.
 
-**The upstream pyspec agrees.** `scripts/repro_validator_index_split.py` builds the replayed
-scenario on the reference pyspec, from a genesis state, with BLS on, and writes the data file
-`GloasPyspecReplayPins` reads. Both chains end on the finalized checkpoint
-`(4, block at slot 32)`, and `validators[64]` holds two keys. The script passes at v1.7.0-beta.4 and at upstream commit
-`e3e2d01` (2026-11-12), which carries the later onboarding rule of consensus-specs #5736. So
-the split is a property of the spec. Upstream issue #5798 reports the one-chain half: Fulu
-makes a validator from a `0xB0` deposit that it reaches before the fork.
+**Without the cutoff.** At v1.7.0-beta.4, and at upstream commit `e3e2d01` (2026-11-12), which
+carries the onboarding rule of consensus-specs #5736, the statement is false.
+`scripts/repro_validator_index_split.py --expect split` shows it on the reference pyspec, from
+a genesis state, with BLS on. Both chains end on the finalized checkpoint
+`(4, block at slot 32)`, and `validators[64]` holds two keys. With `--expect agree` the same
+script passes on the pyspec of the branch, and writes the data file `GloasPyspecReplayPins`
+reads. Upstream issue #5798 reports the one-chain half: Fulu makes a validator from a `0xB0`
+deposit that it reaches before the fork. The revision of this repository before the cutoff
+carries the Lean witnesses of the split, as pins that prove `¬ IndexAssignmentFromFulu`.
 
-The Lean witnesses run on `CryptoBackend.ffi`, and each concrete fact closes by
-`native_decide`. They sit with the pins for that reason (§3.6). The definition
-`IndexAssignmentFromFulu` and the lemma `not_indexAssignmentFromFulu`, which reduces the
-refutation to one pair of chains, are in `Proofs/` and use no evaluation.
+**Across the Heze upgrade.** The Heze `IndexAssignmentFromFulu` is false.
+`Tests/HezeValidatorIndexPins.lean` proves `¬ IndexAssignmentFromFulu`
+(`indexAssignmentFromFulu_false`), from a pair of end states at one slot, with one finalized
+checkpoint and two public keys at index 16. Equal finalized checkpoints are compatible under
+every reading of the term, so the pair refutes the property for each such reading. The common
+state is reachable from an anchor that satisfies `SimpleStateInvariants`, so the pair meets
+every hypothesis of the in-fork theorem.
+
+Heze's `applyPendingDeposit` drops a queued deposit with `0x00` credentials and an unknown key
+(EIP-8365). The Fulu and Gloas rules make a validator from it. A fork changes what a queued
+deposit becomes, at a fixed epoch, and the queue position a chain has reached by that epoch
+belongs to that chain. The Gloas cutoff removes that cause for the builder onboarding, and
+Heze has no such rule.
+
+The Lean witness runs on `CryptoBackend.ffi`, and each concrete fact closes by
+`native_decide`. It sits with the pins for that reason (§3.6). The definitions
+`IndexAssignmentFromFulu` are in `Proofs/` and use no evaluation.
 
 **The finalized validators.** The property holds across the upgrades for a smaller set of
 validators. A validator is finalized in a state when its `activation_eligibility_epoch` is at
@@ -1287,9 +1318,10 @@ rest on Lean's three standard axioms, at a preset with two or more slots per epo
 
 `FinalizedIndexAssignmentFromFulu` is `IndexAssignmentFromFulu` with two more hypotheses: the
 validator's `activation_eligibility_epoch` is finalized in both end states.
-`finalizedIndexAssignmentFromFulu` proves it, for Gloas and for Heze. On the replayed pyspec
-chains, `finalizedValidators_on_replay` shows where the line falls: the two end states agree
-at every index up to 63, and validator 64, the index with two keys, is finalized in neither.
+`finalizedIndexAssignmentFromFulu` proves it, for Gloas and for Heze, with no fact about the
+queue. On the replayed pyspec chains, `finalizedValidators_on_replay` shows where the line
+falls: this theorem gives the agreement at every index up to 63, and validator 64 is finalized
+in neither end state. The index-assignment theorem covers that index too.
 
 ---
 
